@@ -1,0 +1,77 @@
+;
+; deckbtflt.inx - installs inbox BTHUSB for the emulated radio plus the lower filter.
+;
+; Ranking: this INF matches the HARDWARE id USB\VID_0CF3&PID_6390, which outranks bth.inf's
+; match on the COMPATIBLE id USB\Class_E0&SubClass_01&Prot_01 (rank 0xFF2003 seen in the PnP
+; log). So Windows picks this INF, which then defers to bth.inf for everything about the radio
+; itself via Include/Needs - BTHUSB and BTHPORT are still the drivers doing the work - and adds
+; DeckBtFlt as a lower filter to monitor the bus-interface handshake.
+;
+; Scope: USB\VID_0CF3&PID_6390 matches the emulated USB device. The physical
+; UART radio is QCA_SHB\UART_H4 and does not match this INF.
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = Bluetooth
+ClassGuid   = {e0cbf06c-cd8b-4647-bb8a-263b43f0f974}
+Provider    = %ProviderName%
+CatalogFile = deckbtflt.cat
+DriverVer   =
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+deckbtflt.sys = 1,,
+
+[Manufacturer]
+%ManufacturerName% = DeckBtFlt,NT$ARCH$.10.0...22000
+
+[DeckBtFlt.NT$ARCH$.10.0...22000]
+%DeckBtRadio.DeviceDesc% = DeckBtRadio_Install, USB\VID_0CF3&PID_6390
+
+[DeckBtRadio_Install.NT]
+Include   = bth.inf
+Needs     = BthUsb.NT
+CopyFiles = DeckBtFlt_CopyFiles
+
+[DeckBtFlt_CopyFiles]
+deckbtflt.sys
+
+[DeckBtRadio_Install.NT.HW]
+Include = bth.inf
+Needs   = BthUsb.NT.HW
+AddReg  = DeckBtRadio_Filter_AddReg
+
+[DeckBtRadio_Filter_AddReg]
+HKR,,"LowerFilters",0x00010008,"DeckBtFlt"
+
+[DeckBtRadio_Install.NT.Services]
+Include    = bth.inf
+Needs      = BthUsb.NT.Services
+AddService = DeckBtFlt,, DeckBtFlt_Service
+
+[DeckBtFlt_Service]
+DisplayName   = %DeckBtFlt.SvcDesc%
+ServiceType   = 1
+StartType     = 3
+ErrorControl  = 1
+ServiceBinary = %13%\deckbtflt.sys
+
+[DeckBtRadio_Install.NT.Wdf]
+KmdfService = DeckBtFlt, DeckBtFlt_wdfsect
+
+[DeckBtFlt_wdfsect]
+KmdfLibraryVersion = $KMDFVERSION$
+
+[Strings]
+ProviderName             = "DeckBtUsb"
+ManufacturerName         = "DeckBtUsb"
+DiskName                 = "DeckBtFlt Installation Disk"
+DeckBtRadio.DeviceDesc   = "DeckBtUsb Virtual Bluetooth Radio"
+DeckBtFlt.SvcDesc        = "DeckBtUsb Bus Interface Filter"

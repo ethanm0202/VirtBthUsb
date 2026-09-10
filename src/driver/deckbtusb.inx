@@ -1,0 +1,57 @@
+;
+; deckbtusb.inx - VirtBthUsb Virtual Bluetooth Host Controller INF.
+;
+; Root-enumerated software host controller device (root\DeckBtUsb).
+;
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = System
+ClassGuid   = {4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider    = %ProviderName%
+CatalogFile = deckbtusb.cat
+DriverVer   =
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+deckbtusb.sys = 1,,
+
+[Manufacturer]
+%ManufacturerName% = Standard,NT$ARCH$.10.0...22000
+
+[Standard.NT$ARCH$.10.0...22000]
+%DeckBtUsb.DeviceDesc% = DeckBtUsb_Install, root\DeckBtUsb
+
+[DeckBtUsb_Install.NT]
+CopyFiles = DeckBtUsb_CopyFiles
+
+[DeckBtUsb_CopyFiles]
+deckbtusb.sys
+
+[DeckBtUsb_Install.NT.Services]
+AddService = DeckBtUsb, 0x00000002, DeckBtUsb_Service
+
+[DeckBtUsb_Service]
+DisplayName   = %DeckBtUsb.SvcDesc%
+ServiceType   = 1
+StartType     = 3
+ErrorControl  = 1
+ServiceBinary = %13%\deckbtusb.sys
+
+[DeckBtUsb_Install.NT.Wdf]
+KmdfService = DeckBtUsb, DeckBtUsb_wdfsect
+
+[DeckBtUsb_wdfsect]
+KmdfLibraryVersion = $KMDFVERSION$
+
+[Strings]
+ProviderName          = "DeckBtUsb"
+ManufacturerName      = "DeckBtUsb"
+DiskName              = "DeckBtUsb Installation Disk"
+DeckBtUsb.DeviceDesc  = "DeckBtUsb Virtual Bluetooth Radio Controller"
+DeckBtUsb.SvcDesc     = "DeckBtUsb Virtual Bluetooth Radio Controller Service"
