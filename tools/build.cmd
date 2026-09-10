@@ -15,7 +15,8 @@ if not exist "%EWDK%\BuildEnv\SetupBuildEnv.cmd" (
 
 set "PROJ=%~dp0..\src\driver\deckbtusb.vcxproj"
 set "PROJ2=%~dp0..\src\filter\deckbtflt.vcxproj"
-
+set "PROJ3=%~dp0..\src\filter\isoflt.vcxproj"
+set "PROJ4=%~dp0..\src\isotest\isotest.vcxproj"
 rem SetupBuildEnv.cmd sets MSVC + SDK + WDK vars in the CURRENT shell.
 rem LaunchBuildEnv.cmd is unusable from a script: it spawns an interactive `cmd /k`.
 call "%EWDK%\BuildEnv\SetupBuildEnv.cmd" >nul
@@ -26,7 +27,18 @@ if errorlevel 1 (
   exit /b 1
 )
 msbuild "%PROJ2%" /nologo /v:minimal /t:Build /p:Configuration=%CFG% /p:Platform=x64
-
+if errorlevel 1 (
+  echo.
+  echo BUILD FAILED: deckbtflt
+  exit /b 1
+)
+msbuild "%PROJ3%" /nologo /v:minimal /t:Build /p:Configuration=%CFG% /p:Platform=x64
+if errorlevel 1 (
+  echo.
+  echo BUILD FAILED: isoflt
+  exit /b 1
+)
+msbuild "%PROJ4%" /nologo /v:minimal /t:Build /p:Configuration=%CFG% /p:Platform=x64
 set "RC=%errorlevel%"
 if not "%RC%"=="0" (
   echo.

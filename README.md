@@ -55,7 +55,7 @@ This driver emulates a USB Bluetooth device (`USB\VID_0CF3&PID_6390`, Wireless c
 ## Status
 
 - **Virtual USB Controller & BTHUSB Binding:** Complete. Windows creates a root hub (`USB\ROOT_HUB30`), loads `BTHUSB.SYS`, and initializes the standard Bluetooth enumerators (`MS_BTHBRB`, `MS_BTHLE`, `MS_RFCOMM`) against the synthetic stub.
-- **Isochronous Endpoints & Bus Filter:** Implemented. High-speed descriptors configured for alternate settings 0–6; companion filter captures bus-interface queries.
+- **Isochronous Endpoints & Bus Filter:** Complete. Tested across 432 transfer cells (alternate settings 1–6, packet counts 1–64); QueryBusTime clock synthesis unblocks UdeCx isochronous transfers under ucx01000.
 - **Qualcomm UART Bridge:** In progress. TLV firmware parser and 673-command bring-up state machine verified against mock hardware.
 - **Power Management (S0ix):** Planned.
 - **In-Band SCO Voice:** Planned.
@@ -74,15 +74,19 @@ VirtBthUsb/
 │   ├── M1-RESULT.md           <- Initial measurement log
 │   └── ROADMAP.md             <- Implementation milestones
 ├── reference/
-│   └── VIRTUAL-HCI-REFERENCE.txt <- Baseline USB descriptors and expected HCI responses
+│   ├── VIRTUAL-HCI-REFERENCE.txt <- Baseline USB descriptors and expected HCI responses
+│   └── stage2-isoc-reference/    <- Stage 2 isochronous geometry matrix and measurement baseline
 ├── src/
 │   ├── include/               <- Shared contracts: usb_descriptors.h, qca_protocol.h, qca_init_fsm.h
 │   ├── common/                <- Host-testable logic: usb_descriptors.c, qca_tlv.c, qca_init_fsm.c
 │   ├── driver/                <- UdeCx virtual host controller (deckbtusb.sys)
-│   └── filter/                <- Bus-interface lower filter (deckbtflt.sys)
+│   ├── filter/                <- Bus-interface lower filter (deckbtflt.sys, isoflt.sys)
+│   └── isotest/               <- UdeCx isochronous endpoint test driver
 └── tools/
     ├── build.cmd              <- Compiles driver packages via EWDK or MSVC
-    ├── selftest.cmd           <- Compiles and runs all four host-side unit test suites
+    ├── selftest.cmd           <- Compiles and runs all five host-side unit test suites
+    ├── isotest/               <- User-mode WinUSB isochronous geometry measurement tool
+    ├── m2-iso.ps1             <- Isochronous test automation script
     ├── *_selftest.c           <- Unit test sources
     ├── m1-install.ps1         <- Driver test staging script
     └── m1-diag.ps1            <- User-mode decoder for in-kernel diagnostic breadcrumbs
@@ -106,7 +110,7 @@ The core logic compiles into host-side test executables without requiring driver
 tools\selftest.cmd
 ```
 
-Validates descriptor geometry, HCI response framing, and firmware parsing against user-mode mocks. See [docs/BUILD.md](docs/BUILD.md) for details.
+Validates descriptor geometry, isochronous alternate settings, HCI response framing, and firmware parsing against user-mode mocks.
 
 ---
 

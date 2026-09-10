@@ -1,0 +1,111 @@
+;
+; isotest.inx - DeckBtIsoTest throwaway UDE device and WinUSB binding (Stage 2).
+;
+; Defines:
+;   1. root\DeckBtIsoTest - root-enumerated UDE controller (isotest.sys)
+;   2. USB\VID_CAFE&PID_4001 - emulated vendor-class child device bound to WinUSB
+;
+; StartType = 3 (demand start) and ErrorControl = 1 keep this driver completely
+; out of the boot path. It has no Bluetooth identity and does not touch BTHUSB.
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = USBDevice
+ClassGuid   = {88BAE032-5A81-49f0-BC3D-A4FF138216D6}
+Provider    = %ProviderName%
+CatalogFile = isotest.cat
+DriverVer   =
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+isotest.sys = 1,,
+isoflt.sys  = 1,,
+
+[Manufacturer]
+%ManufacturerName% = Standard,NT$ARCH$.10.0...22000
+
+[Standard.NT$ARCH$.10.0...22000]
+%IsoTestController.DeviceDesc% = IsoTest_Controller_Install, root\DeckBtIsoTest
+%IsoTestDevice.DeviceDesc%     = IsoTest_Device_Install, USB\VID_CAFE&PID_4001
+
+; --- Controller: KMDF UDE host controller ---
+
+[IsoTest_Controller_Install.NT]
+CopyFiles = IsoTest_CopyFiles
+
+[IsoTest_CopyFiles]
+isotest.sys
+
+[IsoTest_Controller_Install.NT.Services]
+AddService = DeckBtIsoTest, 0x00000002, IsoTest_Service
+
+[IsoTest_Service]
+DisplayName   = %IsoTestController.SvcDesc%
+ServiceType   = 1
+StartType     = 3
+ErrorControl  = 1
+ServiceBinary = %13%\isotest.sys
+
+[IsoTest_Controller_Install.NT.Wdf]
+KmdfService = DeckBtIsoTest, IsoTest_wdfsect
+
+[IsoTest_wdfsect]
+KmdfLibraryVersion = $KMDFVERSION$
+
+; --- Emulated Child Device: WinUSB function driver with bus-interface filter ---
+
+[IsoTest_Device_Install.NT]
+Include   = winusb.inf
+Needs     = WINUSB.NT
+CopyFiles = IsoTest_Filter_CopyFiles
+
+[IsoTest_Filter_CopyFiles]
+isoflt.sys
+
+[IsoTest_Device_Install.NT.Services]
+Include    = winusb.inf
+Needs      = WINUSB.NT.Services
+AddService = DeckBtIsoFlt,, IsoTest_Filter_Service
+
+[IsoTest_Filter_Service]
+DisplayName   = %IsoTestFilter.SvcDesc%
+ServiceType   = 1
+StartType     = 3
+ErrorControl  = 1
+ServiceBinary = %13%\isoflt.sys
+AddReg        = IsoTest_Filter_Service_AddReg
+
+[IsoTest_Filter_Service_AddReg]
+; NOCLOBBER (0x00000002): a live run selects the mode before /add-driver /install, so the
+; package default must never overwrite an operator-selected value. A fresh install still seeds 1.
+HKLM,"SYSTEM\CurrentControlSet\Services\DeckBtIsoFlt\Parameters","IsochClockMode",0x00010003,1
+
+[IsoTest_Device_Install.NT.HW]
+AddReg = IsoTest_Device_HW_AddReg
+
+[IsoTest_Device_HW_AddReg]
+; Custom interface GUID for the isotest user-mode harness
+HKR,,DeviceInterfaceGUIDs,0x00010000,"{D3C8B701-150A-4E2F-A69D-B7E55424D1E2}"
+HKR,,"LowerFilters",0x00010008,"DeckBtIsoFlt"
+
+[IsoTest_Device_Install.NT.Wdf]
+KmdfService = DeckBtIsoFlt, IsoTest_Filter_wdfsect
+
+[IsoTest_Filter_wdfsect]
+KmdfLibraryVersion = $KMDFVERSION$
+
+[Strings]
+ProviderName                 = "DeckBtUsb"
+ManufacturerName             = "DeckBtUsb"
+DiskName                     = "DeckBtUsb IsoTest Installation Disk"
+IsoTestController.DeviceDesc = "DeckBtUsb IsoTest UDE Controller"
+IsoTestController.SvcDesc    = "DeckBtUsb IsoTest UDE Controller Service"
+IsoTestDevice.DeviceDesc     = "DeckBtUsb IsoTest Virtual USB Device"
+IsoTestFilter.SvcDesc        = "DeckBtIsoFlt Bus Interface Filter Service"

@@ -52,6 +52,12 @@ if errorlevel 1 (
   exit /b 1
 )
 
+cl.exe /nologo /W4 /WX /Fe:"%OUT%\isotest_selftest.exe" /Fo:"%OUT%\\" ^
+   "%HERE%isotest_selftest.c" "%HERE%..\src\isotest\descriptors.c" "%HERE%..\src\common\usb_descriptors.c"
+if errorlevel 1 (
+  echo BUILD FAILED: isotest_selftest
+  exit /b 1
+)
 echo.
 "%OUT%\descriptor_selftest.exe"
 if errorlevel 1 exit /b 1
@@ -63,4 +69,7 @@ echo.
 if errorlevel 1 exit /b 1
 echo.
 "%OUT%\qca_fsm_selftest.exe"
+if errorlevel 1 exit /b 1
+echo.
+"%OUT%\isotest_selftest.exe"
 exit /b %errorlevel%

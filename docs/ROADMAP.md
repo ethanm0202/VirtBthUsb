@@ -16,12 +16,12 @@ Status: Complete
 ---
 
 ## Milestone 2: Isochronous Data Plane & QueryBusTime Filter
-Status: Implemented
-- [ ] Isochronous endpoint handling on Interface 1 alternate settings 0–6
-- [ ] Measure and record packet geometry support matrix under `ucx01000`
-- [ ] Verification of `QueryBusTime` / `QueryBusTimeEx` handling via `deckbtflt.sys`
-- [ ] Safe teardown and cancellation of pending isochronous transfers
-
+Status: Complete
+- [x] Isochronous endpoint handling on Interface 1 alternate settings 0–6
+- [x] Measured and recorded packet geometry support matrix under `ucx01000` (432 transfer cells)
+- [x] QueryBusTime / QueryBusTimeEx synthesis implemented in `deckbtflt.sys` / `isoflt.sys`
+- [x] Verified clean transfer teardown and cancellation
+- [x] Geometry matrix and baseline measurements recorded (`reference/stage2-isoc-reference/`)
 ---
 
 ## Milestone 3: Qualcomm WCN6855 UART Transport Bridge
