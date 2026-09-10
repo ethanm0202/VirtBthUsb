@@ -62,35 +62,28 @@ This driver emulates a USB Bluetooth device (`USB\VID_0CF3&PID_6390`, Wireless c
 
 ---
 
-## Repository Layout
+## Files by Milestone
 
-```
-VirtBthUsb/
-├── LICENSE                    <- MIT License
-├── README.md                  <- This document
-├── docs/
-│   ├── ARCHITECTURE.md        <- UdeCx constraints, descriptors, and Windows behavior
-│   ├── BUILD.md               <- Build and self-test instructions
-│   ├── M1-RESULT.md           <- Initial measurement log
-│   └── ROADMAP.md             <- Implementation milestones
-├── reference/
-│   ├── VIRTUAL-HCI-REFERENCE.txt <- Baseline USB descriptors and expected HCI responses
-│   └── stage2-isoc-reference/    <- Stage 2 isochronous geometry matrix and measurement baseline
-├── src/
-│   ├── include/               <- Shared contracts: usb_descriptors.h, qca_protocol.h, qca_init_fsm.h
-│   ├── common/                <- Host-testable logic: usb_descriptors.c, qca_tlv.c, qca_init_fsm.c
-│   ├── driver/                <- UdeCx virtual host controller (deckbtusb.sys)
-│   ├── filter/                <- Bus-interface lower filter (deckbtflt.sys, isoflt.sys)
-│   └── isotest/               <- UdeCx isochronous endpoint test driver
-└── tools/
-    ├── build.cmd              <- Compiles driver packages via EWDK or MSVC
-    ├── selftest.cmd           <- Compiles and runs all five host-side unit test suites
-    ├── isotest/               <- User-mode WinUSB isochronous geometry measurement tool
-    ├── m2-iso.ps1             <- Isochronous test automation script
-    ├── *_selftest.c           <- Unit test sources
-    ├── m1-install.ps1         <- Driver test staging script
-    └── m1-diag.ps1            <- User-mode decoder for in-kernel diagnostic breadcrumbs
-```
+### Milestone 1: Virtual USB Bluetooth Controller
+- **`src/driver/`** — UdeCx virtual host controller driver (`deckbtusb.sys`, `device.c`, `driver.c`, `endpoints.c`, `hci_stub.c`)
+- **`src/common/usb_descriptors.c`** — High-Speed USB descriptor tables (bulk 512, isoch interval 4)
+- **`src/filter/deckbtflt.c`** — Pass-through lower filter monitoring `IRP_MN_QUERY_INTERFACE`
+- **`docs/M1-RESULT.md`** — Initial verification report on Windows 11
+- **`reference/VIRTUAL-HCI-REFERENCE.txt`** — Baseline descriptors and synthetic HCI command/event pairs
+- **`tools/m1-diag.ps1`** — User-mode decoder for in-kernel diagnostic breadcrumbs
+
+### Milestone 2: Isochronous Audio Transport & Bus Clock Filter
+- **`src/filter/deckbtflt.c`** & **`isoflt.vcxproj`** — `QueryBusTime` clock synthesis engine
+- **`src/isotest/`** — Standalone UdeCx isochronous test device driver (`isotest.sys`)
+- **`tools/isotest/isotest.c`** — User-mode WinUSB geometry measurement harness
+- **`tools/m2-iso.ps1`** — Automated 432-cell geometry test runner
+- **`tools/isotest_selftest.c`** — Unit test verifying isochronous alternate-setting geometries
+- **`reference/stage2-isoc-reference/`** — Test report (`SUMMARY.md`), packet specs (`GEOMETRY.md`), and raw CSV logs
+
+### Common Firmware Parser & Verification Tests
+- **`src/include/qca_protocol.h`** & **`qca_init_fsm.h`** — Protocol definitions and bring-up state machine contracts
+- **`src/common/qca_tlv.c`** & **`qca_init_fsm.c`** — Firmware TLV parser and bring-up sequencer
+- **`tools/qca_selftest.c`** & **`qca_fsm_selftest.c`** — Host-side unit tests verifying firmware parsing and FSM logic
 
 ---
 
