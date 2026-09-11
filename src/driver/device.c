@@ -249,6 +249,7 @@ DeckBtCreateUsbDevice(_In_ PDECKBT_CONTROLLER Controller)
     PUDECXUSBDEVICE_INIT deviceInit = NULL;
     UDECX_USB_DEVICE_STATE_CHANGE_CALLBACKS callbacks;
     UDECX_USB_DEVICE_PLUG_IN_OPTIONS plugInOptions;
+    UDECXUSBDEVICE usbDevice = NULL;
     WDF_OBJECT_ATTRIBUTES attributes;
     PDECKBT_ENDPOINT deviceContext;
 
@@ -329,26 +330,35 @@ DeckBtCreateUsbDevice(_In_ PDECKBT_CONTROLLER Controller)
      * The UDE device carries a DECKBT_ENDPOINT context holding the controller back-pointer;
      * endpoint callbacks retrieve this context to locate the controller.
      */
-    status = UdecxUsbDeviceCreate(&deviceInit, &attributes, &Controller->UsbDevice);
+    WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attributes, DECKBT_ENDPOINT);
+    status = UdecxUsbDeviceCreate(&deviceInit, &attributes, &usbDevice);
     DeckBtRecordStep(DECKBT_STEP_UDEV_CREATE, status);
     if (!NT_SUCCESS(status)) {
         goto cleanup;
     }
     deviceInit = NULL;   /* ownership transferred on success */
 
-    deviceContext = (PDECKBT_ENDPOINT)WdfObjectGetTypedContext(Controller->UsbDevice, DECKBT_ENDPOINT);
+    deviceContext = (PDECKBT_ENDPOINT)WdfObjectGetTypedContext(usbDevice, DECKBT_ENDPOINT);
     deviceContext->Controller = Controller;
     deviceContext->Address = 0;
 
     UDECX_USB_DEVICE_PLUG_IN_OPTIONS_INIT(&plugInOptions);
     plugInOptions.Usb20PortNumber = 1;
 
-    status = UdecxUsbDevicePlugIn(Controller->UsbDevice, &plugInOptions);
+    status = UdecxUsbDevicePlugIn(usbDevice, &plugInOptions);
     DeckBtRecordStep(DECKBT_STEP_UDEV_PLUGIN, status);
+    if (NT_SUCCESS(status)) {
+        /* Publish only a live, plugged-in object. */
+        Controller->UsbDevice = usbDevice;
+        usbDevice = NULL;
+    }
 
 cleanup:
     if (deviceInit != NULL) {
         UdecxUsbDeviceInitFree(deviceInit);
+    }
+    if (usbDevice != NULL) {
+        WdfObjectDelete(usbDevice);
     }
     return status;
 }
