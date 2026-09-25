@@ -1,0 +1,26 @@
+{
+  "totalCells": 432,
+  "acceptedTotal": 216,
+  "acceptedIn": 54,
+  "acceptedOut": 162,
+  "exactRejected": 0,
+  "rejectedByCategory": {
+    "zero": 108,
+    "sub": 54,
+    "oversize": 54
+  },
+  "inBytesTotal": 30772,
+  "aggregates": {
+    "urbTotal": 235,
+    "urbOut": 175,
+    "urbIn": 60,
+    "nonSuccess": 0,
+    "shortCompletions": 0,
+    "packetSizeMismatches": 0,
+    "bytesRequestedIn": 30772,
+    "bytesCompletedIn": 30772,
+    "bytesRequestedOut": 77437,
+    "bytesCompletedOut": 77437
+  },
+  "csvHeader": "Alt,Direction,Endpoint,INPacketCountArgument,NominalBytesPerInterval,TotalLength,Category,FailedAt,DeviceSpeed,Win32Error,UsbdStatus,BytesTransferred,Result"
+}

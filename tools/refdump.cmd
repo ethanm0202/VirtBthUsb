@@ -1,7 +1,7 @@
 @echo off
 rem Regenerate reference\VIRTUAL-HCI-REFERENCE.txt from the production sources.
 setlocal
-set "EWDK=C:\EWDK"
+if not defined EWDK set "EWDK=C:\EWDK"
 set "MSVC_ROOT=%EWDK%\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC"
 set "SDK=%EWDK%\Program Files\Windows Kits\10"
 set "SDKVER=10.0.26100.0"

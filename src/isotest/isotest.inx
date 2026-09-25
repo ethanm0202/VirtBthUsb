@@ -1,5 +1,5 @@
 ;
-; isotest.inx - DeckBtIsoTest throwaway UDE device and WinUSB binding (Stage 2).
+; isotest.inx - DeckBtIsoTest throwaway UDE device and WinUSB binding.
 ;
 ; Defines:
 ;   1. root\DeckBtIsoTest - root-enumerated UDE controller (isotest.sys)
@@ -83,7 +83,7 @@ ServiceBinary = %13%\isoflt.sys
 AddReg        = IsoTest_Filter_Service_AddReg
 
 [IsoTest_Filter_Service_AddReg]
-; NOCLOBBER (0x00000002): a live run selects the mode before /add-driver /install, so the
+; NOCLOBBER (0x00000002): the operator selects the mode before /add-driver /install, so the
 ; package default must never overwrite an operator-selected value. A fresh install still seeds 1.
 HKLM,"SYSTEM\CurrentControlSet\Services\DeckBtIsoFlt\Parameters","IsochClockMode",0x00010003,1
 

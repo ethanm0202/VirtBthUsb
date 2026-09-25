@@ -1,4 +1,4 @@
-/* Stage 2 WinUSB isochronous geometry measurement harness. */
+/* WinUSB isochronous geometry measurement harness. */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <winusb.h>
@@ -131,7 +131,7 @@ static void PopulatePlan(void)
     ULONG countIndex;
 
     g_CellCount = 0;
-    /* Alt 0 has no usable pipes. Live mode verifies that fact but submits no transfer. */
+    /* Alt 0 has no usable pipes. Measurement mode verifies that fact but submits no transfer. */
     for (alt = 1; alt < ALT_COUNT; ++alt) {
         for (direction = 0; direction < 2; ++direction) {
             UCHAR endpoint = direction == 0 ? EP_ISOCH_OUT : EP_ISOCH_IN;
@@ -157,7 +157,7 @@ static void PrintOutConfirmationLegend(FILE *out)
 {
     fprintf(out, "[*] Legend: Accepted OUT rows are confirmed only device-side; WinUSB does not report\n"
                  "[*] per-packet status or transfer byte counts for ASAP writes (UsbdStatus and BytesTransferred\n"
-                 "[*] are NOT_REPORTED). Device-side confirmation lives in the isotest driver's IsochUrbCount,\n"
+                 "[*] are NOT_REPORTED). Device-side confirmation is recorded in the isotest driver's IsochUrbCount,\n"
                  "[*] LastIsoch* values, and IsochUrbHistory under\n"
                  "[*] HKLM\\SYSTEM\\CurrentControlSet\\Services\\DeckBtIsoTest\\Parameters.\n");
 }
@@ -341,7 +341,7 @@ static BOOL QueryExpectedPipes(WINUSB_INTERFACE_HANDLE iface, UCHAR alt, BOOL re
                (unsigned)alt, GetLastError());
         return FALSE;
     }
-    /* The frozen alt 0 descriptor really contains two zero-sized endpoints. */
+    /* Alt 0 has two zero-sized endpoints. */
     if (descriptor.bInterfaceNumber != 1 || descriptor.bAlternateSetting != alt ||
         descriptor.bNumEndpoints != 2) {
         printf("[-] Alt %u descriptor mismatch: interface=%u setting=%u endpoints=%u.\n",
@@ -398,7 +398,7 @@ static BOOL DrainOverlapped(HANDLE device, WINUSB_INTERFACE_HANDLE iface,
         }
         wait = WaitForSingleObject(ov->hEvent, IO_TIMEOUT_MS);
         if (wait != WAIT_OBJECT_0) {
-            fprintf(stderr, "[-] FATAL: incomplete I/O did not drain after cancellation; terminating without freeing live buffers.\n");
+            fprintf(stderr, "[-] FATAL: incomplete I/O did not drain after cancellation; terminating without freeing in-flight buffers.\n");
             fflush(NULL);
             ExitProcess(EXIT_ERROR);
         }
@@ -618,7 +618,7 @@ static BOOL RunCancellationRecovery(HANDLE device, WINUSB_INTERFACE_HANDLE contr
         printf("[-] Cancelled request did not complete within %u ms; requesting release.\n", IO_TIMEOUT_MS);
         (void)VendorCommand(control, RELEASE_HELD);
         if (WaitForSingleObject(ov.hEvent, IO_TIMEOUT_MS) != WAIT_OBJECT_0) {
-            fprintf(stderr, "[-] FATAL: held I/O could not be cancelled or released; terminating without freeing live buffers.\n");
+            fprintf(stderr, "[-] FATAL: held I/O could not be cancelled or released; terminating without freeing in-flight buffers.\n");
             fflush(NULL);
             ExitProcess(EXIT_ERROR);
         }
@@ -687,7 +687,7 @@ static void Usage(void)
     printf("Usage: isotest.exe [--plan] [--csv <path>]\n");
     printf("  --plan       enumerate the exact transfer cells without opening a device\n");
     printf("  --csv path   write the plan or measured results to path\n");
-    printf("Exit: 0 completed, 1 usage/instrument failure, 2 live device absent.\n");
+    printf("Exit: 0 completed, 1 usage/instrument failure, 2 target device absent.\n");
 }
 
 int wmain(int argc, wchar_t **argv)
@@ -702,7 +702,7 @@ int wmain(int argc, wchar_t **argv)
     UCHAR *buffer = NULL;
     BOOL infrastructureOk = TRUE;
     BOOL frameNumberAvailable = FALSE;
-    const char *failingStage = NULL;
+    const char *failingPhase = NULL;
     CANCEL_PROBE_VERDICT cancelVerdict = CANCEL_PROBE_NOT_RUN;
     DWORD cancelError = ERROR_SUCCESS;
     ULONG acceptedCount = 0;
@@ -750,19 +750,19 @@ int wmain(int argc, wchar_t **argv)
                          FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL);
     if (device == INVALID_HANDLE_VALUE) {
         printf("[-] CreateFileW failed: Win32 %lu.\n", GetLastError());
-        failingStage = "interface open";
+        failingPhase = "interface open";
         printf("[-] Measurement incomplete: interface open failed.\n");
         goto cleanup;
     }
     if (!WinUsb_Initialize(device, &control)) {
         printf("[-] WinUsb_Initialize failed: Win32 %lu.\n", GetLastError());
-        failingStage = "interface open";
+        failingPhase = "interface open";
         printf("[-] Measurement incomplete: interface open failed.\n");
         goto cleanup;
     }
     if (!WinUsb_GetAssociatedInterface(control, 0, &isoch)) {
         printf("[-] Interface 1 is required; GetAssociatedInterface failed: Win32 %lu.\n", GetLastError());
-        failingStage = "interface open";
+        failingPhase = "interface open";
         printf("[-] Measurement incomplete: interface open failed.\n");
         goto cleanup;
     }
@@ -801,7 +801,7 @@ int wmain(int argc, wchar_t **argv)
     if (!WinUsb_SetCurrentAlternateSetting(isoch, 0) || !QueryExpectedPipes(isoch, 0, FALSE)) {
         printf("[-] Alt 0 zero-bandwidth geometry could not be verified.\n");
         infrastructureOk = FALSE;
-        if (failingStage == NULL) failingStage = "alternate-setting selection";
+        if (failingPhase == NULL) failingPhase = "alternate-setting selection";
     }
     buffer = (UCHAR *)VirtualAlloc(NULL, DMA_BUFFER_SIZE, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     if (buffer == NULL) {
@@ -820,7 +820,7 @@ int wmain(int argc, wchar_t **argv)
                 printf("[-] Alt %u activation/geometry failed; its cells are not attempted.\n",
                        (unsigned)currentAlt);
                 infrastructureOk = FALSE;
-                if (failingStage == NULL) failingStage = "alternate-setting selection";
+                if (failingPhase == NULL) failingPhase = "alternate-setting selection";
                 while (i < g_CellCount && g_Cells[i].Alt == currentAlt) {
                     g_Cells[i].DeviceSpeed = deviceSpeedStr;
                     g_Cells[i].FailedAt = "HARNESS_PRECHECK";
@@ -835,7 +835,7 @@ int wmain(int argc, wchar_t **argv)
         RunCell(device, isoch, cell, buffer, DMA_BUFFER_SIZE);
         if (cell->Win32Error == ERROR_TIMEOUT) {
             infrastructureOk = FALSE;
-            if (failingStage == NULL) failingStage = "transfer execution";
+            if (failingPhase == NULL) failingPhase = "transfer execution";
         }
     }
     printf("[*] Recorded %lu attempted API calls; OUT packetization is controlled by WinUSB.\n",
@@ -847,23 +847,23 @@ int wmain(int argc, wchar_t **argv)
 
     if (!RunCancellationRecovery(device, control, isoch, buffer, acceptedCount, &cancelVerdict, &cancelError)) {
         infrastructureOk = FALSE;
-        if (failingStage == NULL) failingStage = "cancellation probe";
+        if (failingPhase == NULL) failingPhase = "cancellation probe";
     }
     PrintOutConfirmationLegend(stdout);
     PrintCells(stdout, FALSE);
     if (csvPath != NULL && !WriteCsv(csvPath, FALSE)) {
         infrastructureOk = FALSE;
-        if (failingStage == NULL) failingStage = "CSV write";
+        if (failingPhase == NULL) failingPhase = "CSV write";
     }
     PrintMeasurementSummary(stdout, frameNumberAvailable);
     if (infrastructureOk) {
         printf("[+] Measurement completed; ACCEPTED/REJECTED rows are observations, not fabricated pass criteria.\n");
         result = EXIT_OK;
     } else {
-        if (failingStage == NULL) {
-            failingStage = "instrument setup";
+        if (failingPhase == NULL) {
+            failingPhase = "instrument setup";
         }
-        if (strcmp(failingStage, "cancellation probe") == 0) {
+        if (strcmp(failingPhase, "cancellation probe") == 0) {
             if (cancelVerdict == CANCEL_PROBE_INCONCLUSIVE) {
                 printf("[-] Measurement incomplete: cancellation probe INCONCLUSIVE (Win32 %lu).\n",
                        cancelError);
@@ -872,7 +872,7 @@ int wmain(int argc, wchar_t **argv)
                        cancelError);
             }
         } else {
-            printf("[-] Measurement incomplete: %s failed.\n", failingStage);
+            printf("[-] Measurement incomplete: %s failed.\n", failingPhase);
         }
     }
 cleanup:

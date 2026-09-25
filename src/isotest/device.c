@@ -1,5 +1,5 @@
 /*
- * device.c - UDE controller and emulated USB device lifecycle for DeckBtIsoTest (Stage 2).
+ * device.c - UDE controller and emulated USB device lifecycle for DeckBtIsoTest.
  */
 
 #include "isotest.h"

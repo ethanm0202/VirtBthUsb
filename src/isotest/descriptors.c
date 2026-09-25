@@ -1,5 +1,5 @@
 /*
- * descriptors.c - USB descriptors for DeckBtIsoTest UDE driver (Stage 2).
+ * descriptors.c - USB descriptors for DeckBtIsoTest UDE driver.
  *
  * Implements vendor-class device with the exact isochronous geometry from
  * reference/VIRTUAL-HCI-REFERENCE.txt (Interface 1, alternate settings 0..6,

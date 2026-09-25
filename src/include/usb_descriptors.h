@@ -1,21 +1,20 @@
 /*
- * usb_descriptors.h - frozen USB descriptor contract for the DeckBtUsb virtual Bluetooth radio.
+ * usb_descriptors.h - shared USB descriptor contract for the DeckBtUsb virtual Bluetooth radio.
  *
- * This is a FROZEN INTERFACE. Downstream code (UDE client, filter, data plane) depends on the
- * endpoint addresses and the alternate-setting table below; change them only with a matching
- * update to every consumer.
+ * Downstream code (UDE client, filter, data plane) depends on the endpoint addresses and the
+ * alternate-setting table below; changes require matching updates to every consumer.
  *
  * Binding rationale
  * -----------------
  * C:\Windows\INF\bth.inf [GenericAdapter.NTamd64] matches the compatible ID
  *     USB\Class_E0&SubClass_01&Prot_01
- * and its ExcludeID list holds VID_0CF3 PIDs 0036 / E003 / E004 / E005 but NOT 6390. So a device
+ * and its ExcludeID list holds VID_0CF3 PIDs 0036 / E003 / E004 / E005 but not 6390. So a device
  * reporting VID_0CF3 & PID_6390 with class E0/01/01 is claimed by inbox bth.inf, which installs
  * BTHUSB + BTHPORT. PID_6390 is what Qualcomm's own qcbtuart.sys uses for its (non-functional)
  * VUSB_HCI personality, so it is the natural choice and is known not to collide with a real
  * excluded dongle.
  *
- * Deliberately NOT a composite device: no IAD, bDeviceClass = 0xE0 at device level. A composite
+ * Deliberately not a composite device: no IAD, bDeviceClass = 0xE0 at device level. A composite
  * device would get usbccgp inserted, which would split HCI and SCO into separate interface
  * collections; BTHUSB expects to own the whole device.
  *

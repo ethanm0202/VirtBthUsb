@@ -3,8 +3,7 @@
  *
  * Design: one table maps an opcode to its Command_Complete return parameters. Any opcode not in
  * the table still gets a well-formed Command_Complete with status 0x00, because BTHPORT probes a
- * long tail of optional commands and a missing response stalls enumeration. Refusing unknown
- * commands would be more "correct" and strictly less useful for M1.
+ * long tail of optional commands and a missing response stalls enumeration.
  */
 
 #include "hci_stub.h"
@@ -19,7 +18,7 @@ static const UCHAR g_LocalVersion[] = {
     0x0B, 0x00, 0x00, 0x0B, 0x1D, 0x00, 0x00, 0x00
 };
 
-/* Read_Local_Supported_Commands: 64 bytes. All ones would claim commands we do not implement,
+/* Read_Local_Supported_Commands: 64 bytes. All ones would claim unsupported commands,
  * so advertise the mandatory core set only: this is the conservative choice and BTHPORT copes. */
 static const UCHAR g_SupportedCommands[64] = {
     0xFF, 0xFF, 0xFF, 0x03, 0xCE, 0xFF, 0xEF, 0xFF,
@@ -47,10 +46,8 @@ static const UCHAR g_LeFeatures[8] = { 0x7D, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00,
 
 /*
  * LE_Read_Supported_States: 8 bytes, little-endian bitmask.
- * The first live M1 run produced BTHUSB event 34:
- *     "minimum required supported state mask is 0x2491f7fffff, got 0x1fffffffff"
- * 0x1FFFFFFFFF was exactly the value the old table encoded. Claim every state so the required
- * mask is a subset; a synthetic controller has no reason to withhold any.
+ * BTHUSB requires a minimum supported state mask covering 0x2491f7fffff.
+ * Claim every state so the required mask is a subset.
  */
 static const UCHAR g_LeStates[8] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 
@@ -300,8 +297,8 @@ BOOLEAN HciStubPopEvent(
     if (slot->Length > Capacity) {
         /*
          * The interrupt endpoint's wMaxPacketSize is 16, so a long event legitimately needs
-         * several transfers. M1 only produces short events; truncating silently would hide a
-         * real bug, so drop the event and report zero bytes instead.
+         * several transfers. The synthetic stub produces only short events; drop over-capacity
+         * events and report failure rather than silently truncating.
          */
         Stub->Head = (Stub->Head + 1) % HCI_EVENT_FIFO_DEPTH;
         Stub->Count--;
@@ -314,4 +311,138 @@ BOOLEAN HciStubPopEvent(
     Stub->Head = (Stub->Head + 1) % HCI_EVENT_FIFO_DEPTH;
     Stub->Count--;
     return TRUE;
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * HCI_TRANSPORT binding for the synthetic stub controller
+ * -----------------------------------------------------------------------------
+ */
+
+static unsigned char
+HciStubTransportSubmitCommand(
+    HCI_TRANSPORT *Transport,
+    const unsigned char *Packet,
+    unsigned long Length)
+{
+    PHCI_STUB stub = (PHCI_STUB)Transport->Context;
+    if (stub == NULL) {
+        return 0;
+    }
+    return (unsigned char)(HciStubSubmitCommand(stub, Packet, Length) ? 1 : 0);
+}
+
+static unsigned char
+HciStubTransportSubmitAcl(
+    HCI_TRANSPORT *Transport,
+    const unsigned char *Packet,
+    unsigned long Length)
+{
+    (void)Transport;
+    (void)Packet;
+    (void)Length;
+    /* Accept and discard: no radio behind the stub */
+    return 1;
+}
+
+static unsigned char
+HciStubTransportSubmitSco(
+    HCI_TRANSPORT *Transport,
+    const unsigned char *Packet,
+    unsigned long Length)
+{
+    (void)Transport;
+    (void)Packet;
+    (void)Length;
+    /* Accept and discard: no radio behind the stub */
+    return 1;
+}
+
+static unsigned char
+HciStubTransportHasStream(
+    const HCI_TRANSPORT *Transport,
+    HCI_STREAM Stream)
+{
+    const HCI_STUB *stub = (const HCI_STUB *)Transport->Context;
+    if (stub == NULL) {
+        return 0;
+    }
+    if (Stream == HciStreamEvent) {
+        return (unsigned char)(stub->Count != 0 ? 1 : 0);
+    }
+    /* HciStreamAcl and HciStreamSco are always empty (there is no radio) */
+    return 0;
+}
+
+static unsigned char
+HciStubTransportPopStream(
+    HCI_TRANSPORT *Transport,
+    HCI_STREAM Stream,
+    unsigned char *Buffer,
+    unsigned long Capacity,
+    unsigned long *Written)
+{
+    PHCI_STUB stub = (PHCI_STUB)Transport->Context;
+
+    if (Written != NULL) {
+        *Written = 0;
+    }
+    if (stub == NULL || Stream != HciStreamEvent || Written == NULL) {
+        return 0;
+    }
+    if (stub->Count == 0) {
+        return 0;
+    }
+    /*
+     * Contract: FALSE if packet does not fit Capacity, in which case
+     * *Written is 0 and the packet is left queued. Never partially fills.
+     */
+    if (stub->Fifo[stub->Head].Length > Capacity) {
+        return 0;
+    }
+    return (unsigned char)(HciStubPopEvent(stub, Buffer, Capacity, Written) ? 1 : 0);
+}
+
+static unsigned long
+HciStubTransportLastEventLength(
+    const HCI_TRANSPORT *Transport)
+{
+    const HCI_STUB *stub = (const HCI_STUB *)Transport->Context;
+    ULONG last;
+
+    if (stub == NULL || stub->Count == 0) {
+        return 0;
+    }
+    last = (stub->Tail + HCI_EVENT_FIFO_DEPTH - 1) % HCI_EVENT_FIFO_DEPTH;
+    return stub->Fifo[last].Length;
+}
+
+static void
+HciStubTransportReset(
+    HCI_TRANSPORT *Transport)
+{
+    PHCI_STUB stub = (PHCI_STUB)Transport->Context;
+    if (stub != NULL) {
+        HciStubInit(stub);
+    }
+}
+
+static const HCI_TRANSPORT_OPS g_HciStubOps = {
+    HciStubTransportSubmitCommand,
+    HciStubTransportSubmitAcl,
+    HciStubTransportSubmitSco,
+    HciStubTransportHasStream,
+    HciStubTransportPopStream,
+    HciStubTransportLastEventLength,
+    HciStubTransportReset,
+};
+
+VOID
+HciStubBindTransport(
+    _Out_ HCI_TRANSPORT *Transport,
+    _Inout_ HCI_STUB *Stub)
+{
+    Transport->Ops = &g_HciStubOps;
+    Transport->Context = Stub;
+    Transport->Backend = HCI_BACKEND_STUB;
 }

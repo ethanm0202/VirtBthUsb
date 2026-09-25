@@ -1,8 +1,14 @@
 ;
-; deckbtusb.inx - VirtBthUsb Virtual Bluetooth Host Controller INF.
+; deckbtusb.inx - DeckBtUsb virtual Bluetooth radio (UDE host controller).
 ;
-; Root-enumerated software host controller device (root\DeckBtUsb).
+; root\DeckBtUsb binds the synthetic HCI backend for development without touching the radio;
+; ACPI\QCOM2066 binds the UART backend. StartType 3 (demand start) and ErrorControl 1 (normal)
+; keep this driver out of the boot path entirely.
 ;
+; The emulated child (USB\VID_0CF3&PID_6390, class E0/01/01) is deliberately not claimed here:
+; inbox bth.inf [GenericAdapter.NTamd64] must win it so that BTHUSB + BTHPORT load.
+;
+
 [Version]
 Signature   = "$WINDOWS NT$"
 Class       = System
@@ -13,19 +19,26 @@ DriverVer   =
 PnpLockdown = 1
 
 [DestinationDirs]
-DefaultDestDir = 13
+DefaultDestDir              = 13
+DeckBtUsb_Firmware_CopyFiles = 12,DeckBtUsb
 
 [SourceDisksNames]
 1 = %DiskName%,,,""
 
 [SourceDisksFiles]
 deckbtusb.sys = 1,,
+hpbtfw21.tlv  = 1,,
+hpnv21.bin    = 1,,
+hpnv21g.bin   = 1,,
+hpnv21.309    = 1,,
+hpnv21g.309   = 1,,
 
 [Manufacturer]
 %ManufacturerName% = Standard,NT$ARCH$.10.0...22000
 
 [Standard.NT$ARCH$.10.0...22000]
-%DeckBtUsb.DeviceDesc% = DeckBtUsb_Install, root\DeckBtUsb
+%DeckBtUsb.DeviceDesc%     = DeckBtUsb_Install, root\DeckBtUsb
+%DeckBtUsb.UartDeviceDesc% = DeckBtUsb_Uart_Install, ACPI\QCOM2066
 
 [DeckBtUsb_Install.NT]
 CopyFiles = DeckBtUsb_CopyFiles
@@ -49,9 +62,47 @@ KmdfService = DeckBtUsb, DeckBtUsb_wdfsect
 [DeckBtUsb_wdfsect]
 KmdfLibraryVersion = $KMDFVERSION$
 
+;
+; Second install section: ACPI\QCOM2066 physical UART binding.
+; Stages Qualcomm firmware to %12%\DeckBtUsb (\SystemRoot\System32\drivers\DeckBtUsb)
+; and mirrors the vendor driver's out-of-band (OOB) hardware configuration.
+;
+[DeckBtUsb_Uart_Install.NT]
+CopyFiles = DeckBtUsb_CopyFiles, DeckBtUsb_Firmware_CopyFiles
+
+[DeckBtUsb_Firmware_CopyFiles]
+hpbtfw21.tlv
+hpnv21.bin
+hpnv21g.bin
+hpnv21.309
+hpnv21g.309
+
+[DeckBtUsb_Uart_Install.NT.HW]
+AddReg = DeckBtUsb_Uart_HW_AddReg
+
+[DeckBtUsb_Uart_HW_AddReg]
+; Mirrored from vendor qcbtuart.inf [BTUART_OOB.HW.AddReg]: Use same security checks on relative opens
+HKR,,DeviceCharacteristics,0x10001,0x0100
+; Mirrored from vendor qcbtuart.inf [BTUART_OOB.HW.AddReg]: Allow generic-all access to Built-in administrators and Local system
+HKR,,Security,,"D:P(A;;GA;;;BA)(A;;GA;;;SY)(A;;GA;;;LS)"
+; Mirrored from vendor qcbtuart.inf [BTUART_OOB.HW.AddReg]: Use OOB host wake up (ForceInband = 0)
+HKR,,ForceInband,0x10001,0
+; Mirrored from vendor qcbtuart.inf [BTUART_OOB.HW.AddReg]: WDF directed power transition entry
+HKR,"WDF","WdfDirectedPowerTransitionEnable",0x00010001,1
+; DeckBtUsb: this binding exists only for the UART backend (driver.c reads Backend; 1 = HCI_BACKEND_UART).
+; Arming is still the service Parameters value Enabled = 1; without it the device stays idle.
+HKR,,Backend,0x10001,1
+
+[DeckBtUsb_Uart_Install.NT.Services]
+AddService = DeckBtUsb, 0x00000002, DeckBtUsb_Service
+
+[DeckBtUsb_Uart_Install.NT.Wdf]
+KmdfService = DeckBtUsb, DeckBtUsb_wdfsect
+
 [Strings]
-ProviderName          = "DeckBtUsb"
-ManufacturerName      = "DeckBtUsb"
-DiskName              = "DeckBtUsb Installation Disk"
-DeckBtUsb.DeviceDesc  = "DeckBtUsb Virtual Bluetooth Radio Controller"
-DeckBtUsb.SvcDesc     = "DeckBtUsb Virtual Bluetooth Radio Controller Service"
+ProviderName             = "DeckBtUsb"
+ManufacturerName         = "DeckBtUsb"
+DiskName                 = "DeckBtUsb Installation Disk"
+DeckBtUsb.DeviceDesc     = "DeckBtUsb Virtual Bluetooth Radio Controller"
+DeckBtUsb.UartDeviceDesc = "DeckBtUsb Bluetooth UART Controller (Qualcomm QCA2066)"
+DeckBtUsb.SvcDesc        = "DeckBtUsb Virtual Bluetooth Radio Controller Service"

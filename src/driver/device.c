@@ -1,5 +1,5 @@
 /*
- * device.c - UDE controller and emulated-device lifecycle for DeckBtUsb (M1).
+ * device.c - UDE controller and emulated-device lifecycle for DeckBtUsb.
  */
 
 #include "deckbtusb.h"
@@ -19,10 +19,9 @@ DeckBtEvtQueryUsbCapability(
     *ResultLength = 0;
 
     /*
-     * The first M1 run refused EVERY capability with STATUS_NOT_SUPPORTED, which is a deviation
-     * from the reference UDE client: real controllers answer several of these affirmatively, and
-     * a client driver is entitled to treat a refusal as disqualifying. Answer the way an
-     * emulated high-speed controller honestly can.
+     * Answer USB capabilities supported by an emulated high-speed controller.
+     * Returning STATUS_NOT_SUPPORTED for all capabilities can cause client drivers
+     * to treat the controller as invalid.
      */
     if (RtlCompareMemory(CapabilityType, &GUID_USB_CAPABILITY_CHAINED_MDLS, sizeof(GUID))
             == sizeof(GUID)) {
@@ -39,7 +38,7 @@ DeckBtEvtQueryUsbCapability(
     if (RtlCompareMemory(CapabilityType,
                          &GUID_USB_CAPABILITY_DEVICE_CONNECTION_HIGH_SPEED_COMPATIBLE,
                          sizeof(GUID)) == sizeof(GUID)) {
-        /* We plug in as UdecxUsbHighSpeed, so this is true. */
+        /* The device plugs in as UdecxUsbHighSpeed. */
         return STATUS_SUCCESS;
     }
     if (RtlCompareMemory(CapabilityType, &GUID_USB_CAPABILITY_HIGH_BANDWIDTH_ISOCH, sizeof(GUID))
@@ -77,11 +76,9 @@ DeckBtEvtDeviceD0Exit(
 }
 
 /*
- * A USB client driver that fails initialisation recovers by resetting the device. The first
- * successful M1 run showed BTHUSB asking for GUID_DEVICE_RESET_INTERFACE_STANDARD (twice) and
- * GUID_REENUMERATE_SELF_INTERFACE_STANDARD, both answered STATUS_NOT_SUPPORTED because this
- * callback was missing - so after one bad HCI reply BTHUSB had no way back and the devnode
- * stuck in CM_PROB_FAILED_ADD. Supporting reset makes the stack self-healing.
+ * A USB client driver that encounters an error during initialization recovers by resetting
+ * the device via GUID_DEVICE_RESET_INTERFACE_STANDARD or GUID_REENUMERATE_SELF_INTERFACE_STANDARD.
+ * Providing this reset callback allows the stack to recover from transient transport failures.
  */
 VOID
 DeckBtEvtDeviceReset(
@@ -96,11 +93,11 @@ DeckBtEvtDeviceReset(
     UNREFERENCED_PARAMETER(UdecxWdfDevice);
     UNREFERENCED_PARAMETER(AllDevicesReset);
 
-    /* A reset means "forget everything": discard queued events and the selected SCO setting. */
+    /* A reset means "forget everything": discard queued events and the SCO stream. */
     WdfSpinLockAcquire(controller->Lock);
-    HciStubInit(&controller->Hci);
-    controller->ScoAltSetting = 0;
+    HciTransportReset(&controller->Transport);
     WdfSpinLockRelease(controller->Lock);
+    DeckBtScoFlush(controller);
 
     DeckBtRecordStep(DECKBT_STEP_USB_RESET, STATUS_SUCCESS);
     WdfRequestComplete(Request, STATUS_SUCCESS);
@@ -112,6 +109,7 @@ DeckBtCreateEndpointQueue(
     _In_ PDECKBT_CONTROLLER Controller,
     _In_ UDECXUSBENDPOINT Endpoint,
     _In_ UCHAR Address,
+    _In_ USHORT MaxPacketSize,
     _In_ BOOLEAN IsControl)
 {
     NTSTATUS status;
@@ -132,9 +130,8 @@ DeckBtCreateEndpointQueue(
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attributes, DECKBT_ENDPOINT);
     attributes.ParentObject = Endpoint;
     /*
-     * PASSIVE_LEVEL so the control-request tracer can write breadcrumbs to the registry. With
-     * no kernel debugger possible on this hardware, that trace is the only way to see what
-     * BTHUSB asks for. M1 has no throughput requirement that this could compromise.
+     * PASSIVE_LEVEL so the control-request tracer can record trace entries to the registry
+     * when diagnosing enumeration or transport failures without an attached kernel debugger.
      */
     attributes.ExecutionLevel = WdfExecutionLevelPassive;
 
@@ -146,6 +143,7 @@ DeckBtCreateEndpointQueue(
     epContext = DeckBtGetEndpoint(queue);
     epContext->Controller = Controller;
     epContext->Address = Address;
+    epContext->MaxPacketSize = MaxPacketSize;
 
     UdecxUsbEndpointSetWdfIoQueue(Endpoint, queue);
     return STATUS_SUCCESS;
@@ -177,7 +175,7 @@ DeckBtEvtDefaultEndpointAdd(
     }
 
     controller->Ep0 = endpoint;
-    status = DeckBtCreateEndpointQueue(controller, endpoint, USB_DEFAULT_ENDPOINT_ADDRESS, TRUE);
+    status = DeckBtCreateEndpointQueue(controller, endpoint, USB_DEFAULT_ENDPOINT_ADDRESS, 64, TRUE);
     DeckBtRecordStep(DECKBT_STEP_EP_DEFAULT_ADD, status);
     return status;
 }
@@ -215,7 +213,10 @@ DeckBtEvtEndpointAdd(
     default: break;
     }
 
-    status = DeckBtCreateEndpointQueue(controller, endpoint, address, FALSE);
+    /* The SCO endpoints are recreated per alternate setting; each carries that setting's size. */
+    status = DeckBtCreateEndpointQueue(controller, endpoint, address,
+                                       (USHORT)(EndpointToCreate->EndpointDescriptor->wMaxPacketSize & 0x07FFu),
+                                       FALSE);
     DeckBtRecordStep(DECKBT_STEP_EP_ADD, status);
     return status;
 }
@@ -230,13 +231,19 @@ DeckBtEvtEndpointsConfigure(
         ((PDECKBT_ENDPOINT)WdfObjectGetTypedContext(UdecxUsbDevice, DECKBT_ENDPOINT))->Controller;
 
     /*
-     * Records the interface setting reported by UdeCx. The companion filter (DeckBtFlt)
-     * also monitors SELECT_INTERFACE URBs directly for comparison during alternate-setting transitions.
+     * UdeCx is documented-by-practice to pass a wrong or late InterfaceNumber/NewInterfaceSetting
+     * here (see usbip-win2 drivers/ude/device.cpp), so the SCO path never sizes packets from it:
+     * each URB is sized from the endpoint it arrived on. Any SCO setting change ends the current
+     * voice stream, so parked transfers are cancelled and framing restarts.
      */
     if (Params->ConfigureType == UdecxEndpointsConfigureTypeInterfaceSettingChange &&
-        Params->InterfaceNumber == DECKBT_IFACE_SCO &&
-        Params->NewInterfaceSetting <= DECKBT_SCO_ALT_MAX) {
-        controller->ScoAltSetting = Params->NewInterfaceSetting;
+        Params->InterfaceNumber == DECKBT_IFACE_SCO) {
+        DeckBtScoFlush(controller);
+        WdfSpinLockAcquire(controller->Lock);
+        controller->ScoStats.AltSetting = Params->NewInterfaceSetting;
+        controller->ScoStats.AltChanges++;
+        WdfSpinLockRelease(controller->Lock);
+        DeckBtScoPublish(controller, TRUE);
     }
 
     WdfRequestComplete(Request, STATUS_SUCCESS);
@@ -327,8 +334,8 @@ DeckBtCreateUsbDevice(_In_ PDECKBT_CONTROLLER Controller)
     DeckBtRecordStep(DECKBT_STEP_UDEV_DESC_STRINGS, STATUS_SUCCESS);
 
     /*
-     * The UDE device carries a DECKBT_ENDPOINT context holding the controller back-pointer;
-     * endpoint callbacks retrieve this context to locate the controller.
+     * The UDE device carries a DECKBT_ENDPOINT context holding the controller back-pointer; the
+     * endpoint-add callbacks receive only the UDECXUSBDEVICE, so this provides the controller context.
      */
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attributes, DECKBT_ENDPOINT);
     status = UdecxUsbDeviceCreate(&deviceInit, &attributes, &usbDevice);
@@ -348,7 +355,7 @@ DeckBtCreateUsbDevice(_In_ PDECKBT_CONTROLLER Controller)
     status = UdecxUsbDevicePlugIn(usbDevice, &plugInOptions);
     DeckBtRecordStep(DECKBT_STEP_UDEV_PLUGIN, status);
     if (NT_SUCCESS(status)) {
-        /* Publish only a live, plugged-in object. */
+        /* Publish only an active, plugged-in object. */
         Controller->UsbDevice = usbDevice;
         usbDevice = NULL;
     }

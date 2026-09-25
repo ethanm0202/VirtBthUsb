@@ -1,5 +1,5 @@
 /*
- * endpoints.c - URB handling and cancellation testing for DeckBtIsoTest (Stage 2).
+ * endpoints.c - URB handling and cancellation testing for DeckBtIsoTest.
  */
 
 #include "isotest.h"
@@ -110,7 +110,7 @@ IsoTestEvtControlUrb(
         }
     }
 
-    /* Vendor requests for Stage 2 cancellation testing */
+    /* Vendor requests for cancellation testing */
     if ((setup.Packet.bm.Byte & 0x60u) == 0x40u) {
         switch (setup.Packet.bRequest) {
         case ISOTEST_VENDOR_REQ_HOLD_NEXT:

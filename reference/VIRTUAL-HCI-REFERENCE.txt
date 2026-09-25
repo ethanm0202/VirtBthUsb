@@ -8,7 +8,7 @@
   idVendor            0x0CF3
   idProduct           0x6390
   class/subclass/prot E0/01/01 (wireless / RF / Bluetooth)
-  plugged in as       UdecxUsbHighSpeed (mandatory; see docs/M1-RESULT.md)
+  plugged in as       UdecxUsbHighSpeed (required; see docs/ARCHITECTURE.md)
   endpoints           EP 0x81 int IN (events), 0x02 bulk OUT / 0x82 bulk IN (ACL),
                       0x03 isoch OUT / 0x83 isoch IN (SCO)
 

@@ -1,5 +1,5 @@
 /*
- * driver.c - DriverEntry, PnP lifecycle, and registry breadcrumbs for DeckBtIsoTest (Stage 2).
+ * driver.c - DriverEntry, PnP lifecycle, and registry breadcrumbs for DeckBtIsoTest.
  */
 
 #include <initguid.h>

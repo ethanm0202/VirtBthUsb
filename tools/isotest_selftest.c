@@ -118,7 +118,7 @@ int main(void)
                      instrument.inInterval[alt] == production.inInterval[alt]);
     }
 
-    CHECK("frozen alt 0 keeps two zero-packet-size endpoints",
+    CHECK("alt 0 keeps two zero-packet-size endpoints",
           instrument.endpointCount[0] == 2 && instrument.outSize[0] == 0 && instrument.inSize[0] == 0);
     if (failures) { printf("isotest_selftest: %d failure(s)\n", failures); return 1; }
     printf("isotest_selftest: all checks passed\n");

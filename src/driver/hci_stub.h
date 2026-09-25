@@ -1,12 +1,13 @@
 /*
- * hci_stub.h - Synthetic HCI controller responses for bring-up and verification.
+ * hci_stub.h - synthetic HCI controller.
  *
- * Generates HCI command responses from static tables to allow testing the USB emulation
- * layer and Windows driver binding in isolation.
+ * Answers the HCI command set that BTHUSB/BTHPORT issue while bringing a radio up, from static
+ * tables, so that the driver can exercise USB emulation and PnP binding without hardware.
+ * The interface below is what the data plane is written against.
  *
- * USB framing note: HCI commands arrive as the data stage of EP0 class OUT transfers,
- * and events are read from the interrupt IN endpoint. The H4 single-byte prefix used
- * over UART is not present over USB.
+ * Framing note: over the USB Bluetooth transport, HCI commands arrive as the data stage of an
+ * EP0 class OUT transfer, and events are read from the interrupt IN endpoint. The H4 one-byte
+ * packet-type prefix used on UART is not present on USB - endpoints separate the streams.
  */
 
 #pragma once
@@ -18,6 +19,8 @@
 #else
 #include <windows.h>
 #endif
+
+#include "../include/hci_transport.h"
 
 #define HCI_MAX_EVENT_SIZE      257u   /* 2-byte header + up to 255 payload bytes */
 #define HCI_EVENT_FIFO_DEPTH    32u
@@ -42,9 +45,8 @@
 #define HCI_OP_LE_READ_SUPPORTED_STATES     0x201Cu
 
 /*
- * Commands BTHUSB issues that REQUIRE return parameters. A status-only reply to any of these
- * produces "expected an HCI event with a certain size but did not receive it" (BTHUSB event 5)
- * or a command timeout (event 3), both of which were observed on the first live M1 run.
+ * Commands BTHUSB issues that require return parameters. A status-only reply to any of these
+ * produces an event size mismatch (BTHUSB event 5) or a command timeout (event 3).
  */
 #define HCI_OP_READ_LOCAL_NAME              0x0C14u
 #define HCI_OP_READ_PAGE_TIMEOUT            0x0C17u
@@ -55,13 +57,12 @@
 #define HCI_OP_LE_READ_ADV_TX_POWER         0x2007u
 #define HCI_OP_LE_READ_ACCEPT_LIST_SIZE     0x200Fu
 /*
- * Corrected after the live trace: 0x2023 is LE_Read_SUGGESTED_DEFAULT_Data_Length (4 bytes) and
- * 0x202F is LE_Read_MAXIMUM_Data_Length (8 bytes). The 8-byte table was originally attached to
- * 0x2023, so 0x202F fell through to the status-only default and BTHUSB reported a size error.
+ * 0x2023 is LE_Read_Suggested_Default_Data_Length (4 bytes) and
+ * 0x202F is LE_Read_Maximum_Data_Length (8 bytes).
  */
 #define HCI_OP_LE_READ_SUGGESTED_DATA_LEN   0x2023u
 #define HCI_OP_LE_READ_MAX_DATA_LENGTH      0x202Fu
-/* Read_Inquiry_Response_Transmit_Power_Level: 1 byte. Seen unanswered in the live trace. */
+/* Read_Inquiry_Response_Transmit_Power_Level: 1 byte. */
 #define HCI_OP_READ_INQ_RSP_TX_POWER        0x0C58u
 
 /*
@@ -89,6 +90,11 @@ typedef struct _HCI_STUB {
 } HCI_STUB, *PHCI_STUB;
 
 VOID HciStubInit(_Out_ PHCI_STUB Stub);
+
+/* Binds the stub to an HCI_TRANSPORT structure (fills Ops, Context, Backend). */
+VOID HciStubBindTransport(
+    _Out_ HCI_TRANSPORT *Transport,
+    _Inout_ HCI_STUB *Stub);
 
 /*
  * Consume one HCI command packet (opcode LE16, plen, params) and queue the resulting event(s).

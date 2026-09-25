@@ -24,7 +24,7 @@ if ([string]::IsNullOrWhiteSpace($ReportPath)) {
     $ReportPath = Join-Path (Split-Path -Parent $harness) "report-$modeTag-$timestamp.csv"
 }
 $fullReportPath = [System.IO.Path]::GetFullPath($ReportPath)
-$devGen = 'C:\EWDK\Program Files\Windows Kits\10\Tools\10.0.26100.0\x64\devgen.exe'
+$devGen = Join-Path $(if ($env:EWDK) { $env:EWDK } else { 'C:\EWDK' }) 'Program Files\Windows Kits\10\Tools\10.0.26100.0\x64\devgen.exe'
 $hardwareId = 'root\DeckBtIsoTest'
 $instanceId = 'ROOT\DEVGEN\DECKBTISOTEST'
 $childHardwareId = 'USB\VID_CAFE&PID_4001'
@@ -83,7 +83,7 @@ function Confirm-HarnessBuildStamp([System.Collections.Generic.List[string]] $Ou
         Write-Host "Harness build confirmed: $stamp"
         return $stamp
     } else {
-        Write-Host 'Harness build stamp not reported - the harness predates build stamping; rebuild with tools\M2-ISO-BUILD.cmd before trusting this report.'
+        Write-Host 'Harness build stamp not reported - the harness predates build stamping; rebuild with tools\build-isotest.cmd before trusting this report.'
         return 'not reported'
     }
 }
@@ -117,7 +117,7 @@ function Assert-Elevated {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = [Security.Principal.WindowsPrincipal]::new($identity)
     if (-not $principal.IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
-        throw 'Live measurement/rollback requires elevation. Run tools\M2-ISO-MEASURE.cmd.'
+        throw 'Live measurement/rollback requires elevation. Run tools\isotest-run.ps1 in an elevated window.'
     }
 }
 
@@ -129,11 +129,11 @@ function Get-InstrumentDevice {
 function Assert-PackageContract {
     foreach ($path in @($inf, $sys, $fltSys, $cat)) {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-            throw "Required built package file is missing: $path. Run tools\M2-ISO-BUILD.cmd $Configuration first."
+            throw "Required built package file is missing: $path. Run tools\build-isotest.cmd $Configuration first."
         }
     }
     if (-not (Test-Path -LiteralPath $harness -PathType Leaf)) {
-        throw "Measurement harness is missing: $harness. Run tools\M2-ISO-BUILD.cmd $Configuration first."
+        throw "Measurement harness is missing: $harness. Run tools\build-isotest.cmd $Configuration first."
     }
 
     # Read the generated INF rather than assuming the source template's identities.
@@ -563,7 +563,7 @@ function Assert-NoShippingInstrumentOverlap {
         } else {
             'a present shipping USB child'
         }
-        throw ('SAFETY REFUSAL: detected ' + $reason + '. Run tools\M1-DISARM.cmd first. ' +
+        throw ('SAFETY REFUSAL: detected ' + $reason + '. Run tools\stub-install.ps1 -Stage Disarm first. ' +
                'The vendor-class isotest child is not a Bluetooth adapter and does not consume ' +
                'an adapter slot; this refusal prevents concurrent operation of the shipping ' +
                'instrument and the throwaway measurement instrument.')
@@ -609,13 +609,13 @@ try {
     [void](New-Item -ItemType Directory -Path (Split-Path -Parent $logPath) -Force)
     Start-Transcript -Path $logPath -ErrorAction Stop | Out-Null
     $transcriptStarted = $true
-    Write-Host 'DeckBtIsoTest Stage 2 operator'
+    Write-Host 'DeckBtIsoTest operator'
     Write-Host "  Package:    $package"
     Write-Host "  IsochClock: $IsochClock"
     Write-Host "  Harness:    $harness"
     Write-Host "  Report:     $ReportPath"
     Write-Host "  Log:        $logPath"
-    Write-Host "  Reverse:    tools\M2-ISO-MEASURE.cmd -Rollback"
+    Write-Host "  Reverse:    tools\isotest-run.ps1 -Rollback"
 
     Show-RunIdentity
     Assert-Elevated

@@ -129,7 +129,7 @@ int main(void)
     printf("  idProduct           0x%04X\n", DECKBT_PRODUCT_ID);
     printf("  class/subclass/prot %02X/%02X/%02X (wireless / RF / Bluetooth)\n",
            DECKBT_CLASS_WIRELESS, DECKBT_SUBCLASS_RF, DECKBT_PROTOCOL_BLUETOOTH);
-    printf("  plugged in as       UdecxUsbHighSpeed (mandatory; see docs/M1-RESULT.md)\n");
+    printf("  plugged in as       UdecxUsbHighSpeed (required; see docs/ARCHITECTURE.md)\n");
     printf("  endpoints           EP 0x%02X int IN (events), 0x%02X bulk OUT / 0x%02X bulk IN (ACL),\n",
            DECKBT_EP_EVENT_IN, DECKBT_EP_ACL_OUT, DECKBT_EP_ACL_IN);
     printf("                      0x%02X isoch OUT / 0x%02X isoch IN (SCO)\n\n",

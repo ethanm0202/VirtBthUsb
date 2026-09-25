@@ -1,11 +1,9 @@
 /*
- * qca_selftest.c - validates src/common/qca_tlv.c against the REAL Qualcomm firmware files
- * shipped in this machine's DriverStore.
+ * qca_selftest.c - validates src/common/qca_tlv.c against Qualcomm firmware files
+ * shipped in the DriverStore.
  *
- * Why this matters: a segmentation or framing error in the firmware download path is not a
- * benign bug. It leaves the WCN6855 with a partially written patch and no Bluetooth until a
- * power cycle. Since the Deck is the only test machine, the codec is proven against the actual
- * 155,044-byte patch and both NVM files here, before M3 ever opens the UART.
+ * Exercises TLV parsing, header validation, command framing, and segmentation
+ * arithmetic in user mode against actual patch and NVM files.
  *
  * Build: tools\selftest.cmd
  */
@@ -15,14 +13,16 @@
 #include <stdlib.h>
 
 #include "../src/include/qca_protocol.h"
-static const char *GetFwDir(void)
+
+/* Firmware directory: QCA_FW_DIR (set by tools\selftest.cmd to the installed vendor package),
+ * otherwise the copy staged by tools\build.cmd. */
+static const char *FwDir(void)
 {
-    const char *env = getenv("QCA_FW_DIR");
-    if (env != NULL && env[0] != '\0') {
-        return env;
-    }
-    return "C:\\Windows\\System32\\DriverStore\\FileRepository\\qcbtuart.inf_amd64_2617947e65699545\\";
+    static char dir[MAX_PATH];
+    DWORD n = GetEnvironmentVariableA("QCA_FW_DIR", dir, (DWORD)sizeof(dir));
+    return (n > 0 && n < sizeof(dir)) ? dir : "src\\driver";
 }
+
 static int g_fail = 0;
 
 #define CHECK(cond, ...)                                   \
@@ -58,9 +58,13 @@ static void TestCommandFraming(void)
     UCHAR out[16];
     ULONG n;
 
-    printf("command framing against the literal byte arrays in hci_qca.c\n");
+    printf("command framing against upstream command formats\n");
 
-    /* hci_qca.c qca_set_baudrate: u8 cmd[] = { 0x01, 0x48, 0xFC, 0x01, 0x00 }; */
+    /*
+     * Upstream hci_qca.c (qca_set_baudrate;
+     * https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/drivers/bluetooth/hci_qca.c?id=a5218c6474df97f2e7f3af15dcdfc674bae5c137)
+     * issues opcode 0xFC48 with 1 parameter byte containing the baud rate index.
+     */
     n = QcaBuildBaudRateCommand(QCA_BAUDRATE_115200, out, sizeof(out));
     CHECK(n == 5, "baud command is 5 bytes (got %lu)", n);
     CHECK(out[0] == 0x01 && out[1] == 0x48 && out[2] == 0xFC && out[3] == 0x01 && out[4] == 0x00,
@@ -75,7 +79,11 @@ static void TestCommandFraming(void)
     CHECK(QcaBuildBaudRateCommand(QCA_BAUDRATE_115200, out, 4) == 0,
           "short output buffer is rejected");
 
-    /* hci_qca.c: const u8 edl_reset_soc_cmd[] = { 0x01, 0x00, 0xFC, 0x01, 0x05 }; */
+    /*
+     * Upstream hci_qca.c (qca_send_reset;
+     * https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/drivers/bluetooth/hci_qca.c?id=a5218c6474df97f2e7f3af15dcdfc674bae5c137)
+     * formats the EDL reset command as opcode 0xFC00 with sub-command 0x05.
+     */
     n = QcaBuildEdlCommand(EDL_PATCH_RESET_SOC_CMD, out, sizeof(out));
     CHECK(n == 5 && out[0] == 0x01 && out[1] == 0x00 && out[2] == 0xFC &&
           out[3] == 0x01 && out[4] == 0x05,
@@ -95,8 +103,8 @@ static void TestCommandFraming(void)
 }
 
 /*
- * Streams the firmware file through the segment builder, reassembles the
- * payloads, and asserts they match the input file.
+ * The real test: stream a whole firmware file through the segment builder, reassemble the
+ * payloads, and require a byte-exact match with the file.
  */
 static void TestRealFirmware(const char *name, ULONG expectSize, UCHAR expectType,
                              ULONG expectSegments, ULONG expectLastSegment)
@@ -112,12 +120,12 @@ static void TestRealFirmware(const char *name, ULONG expectSize, UCHAR expectTyp
     ULONG lastSegSize = 0;
     int framingOk = 1;
 
-    sprintf_s(path, sizeof(path), "%s%s", GetFwDir(), name);
+    sprintf_s(path, sizeof(path), "%s\\%s", FwDir(), name);
     printf("%s\n", path);
 
     fw = LoadFile(path, &size);
     if (fw == NULL) {
-        printf("  FAIL cannot open (is the DriverStore package still present?)\n");
+        printf("  FAIL cannot open (set QCA_FW_DIR, or run tools\\build.cmd to stage the firmware)\n");
         g_fail++;
         return;
     }
@@ -183,13 +191,27 @@ static void TestRealFirmware(const char *name, ULONG expectSize, UCHAR expectTyp
     CHECK(lastSegSize == expectLastSegment, "final segment %lu bytes (want %lu)",
           lastSegSize, expectLastSegment);
 
-    /* btqca.c: the last segment is always acked, whatever the download mode says. */
+    /* The final segment always requires an ACK regardless of the download mode. */
     {
         UCHAR cmd[QCA_MAX_SIZE_PER_TLV_SEGMENT + 16];
         BOOLEAN ack = FALSE;
         (void)QcaBuildTlvSegmentCommand(fw, size, segments - 1, QCA_SKIP_EVT_VSE_CC,
                                         cmd, sizeof(cmd), &ack);
         CHECK(ack, "final segment is acked even with download mode VSE_CC");
+
+        ack = FALSE;
+        (void)QcaBuildTlvSegmentCommand(fw, size, segments - 1, QCA_SKIP_EVT_VSE,
+                                        cmd, sizeof(cmd), &ack);
+        CHECK(ack, "final segment is acked even with download mode VSE");
+    }
+
+    if (info.DownloadMode == QCA_SKIP_EVT_VSE_CC) {
+        CHECK(acked == 1 && unacked == segments - 1,
+              "mode VSE_CC: intermediate segments unacked (%lu), only final acked (%lu)",
+              unacked, acked);
+    } else if (info.DownloadMode == QCA_SKIP_EVT_NONE) {
+        CHECK(acked == segments && unacked == 0,
+              "mode NONE: every segment acked (%lu acked, 0 unacked)", acked);
     }
     printf("       acked=%lu unacked=%lu (mode %u)\n", acked, unacked, info.DownloadMode);
 
@@ -223,6 +245,29 @@ static void TestRejections(void)
         CHECK(!QcaParseTlv(buf, sizeof(buf), &info), "unknown TLV type rejected");
     }
 
+    /*
+     * Upstream btqca.h (struct tlv_type_patch;
+     * https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/drivers/bluetooth/btqca.h?id=a5218c6474df97f2e7f3af15dcdfc674bae5c137)
+     * defines struct tlv_type_patch as 24 bytes. With the 4-byte tlv_type_hdr,
+     * the exact minimum size is 28 bytes.
+     * 27 bytes (4 + 23) must be rejected; 28 bytes (4 + 24) must be accepted.
+     */
+    {
+        UCHAR patchHdr[28];
+        memset(patchHdr, 0, sizeof(patchHdr));
+        patchHdr[0] = QCA_TLV_TYPE_PATCH;
+
+        /* Declared payload length 23 (total file size 27): rejected because 27 < 4 + 24 */
+        patchHdr[1] = 23;
+        CHECK(!QcaParseTlv(patchHdr, 27, &info),
+              "patch TLV shorter than 4 + 24 bytes (27 B) rejected");
+
+        /* Declared payload length 24 (total file size 28): accepted (exact 24-byte struct) */
+        patchHdr[1] = 24;
+        patchHdr[14] = QCA_SKIP_EVT_VSE;
+        CHECK(QcaParseTlv(patchHdr, 28, &info) && info.DownloadMode == QCA_SKIP_EVT_VSE,
+              "patch TLV of exactly 4 + 24 bytes (28 B) accepted");
+    }
     CHECK(QcaTlvSegmentCount(0) == 0, "zero-length file yields zero segments");
     CHECK(QcaTlvSegmentCount(243) == 1, "exactly 243 bytes is one segment");
     CHECK(QcaTlvSegmentCount(244) == 2, "244 bytes is two segments");
@@ -232,6 +277,84 @@ static void TestRejections(void)
     CHECK(QcaBuildTlvSegmentCommand(buf, sizeof(buf), 0, 0, cmd, 8, &ack) == 0,
           "insufficient output capacity rejected");
 }
+static void TestDownloadModeAckRules(void)
+{
+    UCHAR dummy[QCA_MAX_SIZE_PER_TLV_SEGMENT + 10];
+    UCHAR cmd[QCA_MAX_SIZE_PER_TLV_SEGMENT + 16];
+    BOOLEAN ack = FALSE;
+    ULONG n;
+
+    printf("download mode ack rules\n");
+    memset(dummy, 0xA5, sizeof(dummy));
+
+    /*
+     * Upstream btqca.c (qca_tlv_send_segment;
+     * https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/drivers/bluetooth/btqca.c?id=a5218c6474df97f2e7f3af15dcdfc674bae5c137)
+     * suppresses intermediate ACKs when mode is QCA_SKIP_EVT_VSE_CC or QCA_SKIP_EVT_VSE.
+     *
+     * Intermediate full-size segment (segment 0 of 2):
+     * - QCA_SKIP_EVT_VSE: ack is skipped (FALSE)
+     * - QCA_SKIP_EVT_CC: ack is required (TRUE)
+     * - QCA_SKIP_EVT_VSE_CC: ack is skipped (FALSE)
+     * - QCA_SKIP_EVT_NONE: ack is required (TRUE)
+     */
+    n = QcaBuildTlvSegmentCommand(dummy, sizeof(dummy), 0, QCA_SKIP_EVT_VSE,
+                                  cmd, sizeof(cmd), &ack);
+    CHECK(n > 0 && ack == FALSE,
+          "mode QCA_SKIP_EVT_VSE: intermediate full segment skips ACK (ack == FALSE)");
+
+    n = QcaBuildTlvSegmentCommand(dummy, sizeof(dummy), 0, QCA_SKIP_EVT_CC,
+                                  cmd, sizeof(cmd), &ack);
+    CHECK(n > 0 && ack == TRUE,
+          "mode QCA_SKIP_EVT_CC: intermediate full segment requires ACK (ack == TRUE)");
+
+    n = QcaBuildTlvSegmentCommand(dummy, sizeof(dummy), 0, QCA_SKIP_EVT_VSE_CC,
+                                  cmd, sizeof(cmd), &ack);
+    CHECK(n > 0 && ack == FALSE,
+          "mode QCA_SKIP_EVT_VSE_CC: intermediate full segment skips ACK (ack == FALSE)");
+
+    n = QcaBuildTlvSegmentCommand(dummy, sizeof(dummy), 0, QCA_SKIP_EVT_NONE,
+                                  cmd, sizeof(cmd), &ack);
+    CHECK(n > 0 && ack == TRUE,
+          "mode QCA_SKIP_EVT_NONE: intermediate full segment requires ACK (ack == TRUE)");
+
+    /*
+     * Final segment (segment 1 of 2): ack must be TRUE for all 4 download modes.
+     */
+    n = QcaBuildTlvSegmentCommand(dummy, sizeof(dummy), 1, QCA_SKIP_EVT_VSE,
+                                  cmd, sizeof(cmd), &ack);
+    CHECK(n > 0 && ack == TRUE,
+          "mode QCA_SKIP_EVT_VSE: final segment requires ACK (ack == TRUE)");
+
+    n = QcaBuildTlvSegmentCommand(dummy, sizeof(dummy), 1, QCA_SKIP_EVT_CC,
+                                  cmd, sizeof(cmd), &ack);
+    CHECK(n > 0 && ack == TRUE,
+          "mode QCA_SKIP_EVT_CC: final segment requires ACK (ack == TRUE)");
+
+    n = QcaBuildTlvSegmentCommand(dummy, sizeof(dummy), 1, QCA_SKIP_EVT_VSE_CC,
+                                  cmd, sizeof(cmd), &ack);
+    CHECK(n > 0 && ack == TRUE,
+          "mode QCA_SKIP_EVT_VSE_CC: final segment requires ACK (ack == TRUE)");
+
+    n = QcaBuildTlvSegmentCommand(dummy, sizeof(dummy), 1, QCA_SKIP_EVT_NONE,
+                                  cmd, sizeof(cmd), &ack);
+    CHECK(n > 0 && ack == TRUE,
+          "mode QCA_SKIP_EVT_NONE: final segment requires ACK (ack == TRUE)");
+
+    /*
+     * Short single segment (e.g. 100 bytes total):
+     * Short/last segment must be acked regardless of download mode.
+     */
+    n = QcaBuildTlvSegmentCommand(dummy, 100, 0, QCA_SKIP_EVT_VSE,
+                                  cmd, sizeof(cmd), &ack);
+    CHECK(n > 0 && ack == TRUE,
+          "mode QCA_SKIP_EVT_VSE: short single segment requires ACK (ack == TRUE)");
+
+    n = QcaBuildTlvSegmentCommand(dummy, 100, 0, QCA_SKIP_EVT_VSE_CC,
+                                  cmd, sizeof(cmd), &ack);
+    CHECK(n > 0 && ack == TRUE,
+          "mode QCA_SKIP_EVT_VSE_CC: short single segment requires ACK (ack == TRUE)");
+}
 
 int main(void)
 {
@@ -239,7 +362,8 @@ int main(void)
     printf("\n");
     TestRejections();
     printf("\n");
-    /* Expected values measured from these exact files on this machine. */
+    TestDownloadModeAckRules();
+    printf("\n");
     TestRealFirmware("hpbtfw21.tlv", 155044, QCA_TLV_TYPE_PATCH, 639, 10);
     printf("\n");
     TestRealFirmware("hpnv21.bin",     6610, QCA_TLV_TYPE_NVM,    28, 49);

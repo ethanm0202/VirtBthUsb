@@ -1,74 +1,101 @@
-# Building & Testing VirtBthUsb
+# Building and testing
 
-## Prerequisites
+## Toolchain
 
-- **Windows 11** (x64)
-- **Visual Studio 2022** with Windows Driver Kit (WDK) **OR** the standalone Enterprise WDK (EWDK) ISO
-- For kernel driver installation testing:
-  - Secure Boot **disabled** (required for test-signed drivers)
-  - Memory Integrity (HVCI) **disabled**
-  - Test signing enabled (`bcdedit /set testsigning on`)
+The scripts use the Enterprise WDK (EWDK), a self-contained build environment (MSVC, Windows SDK, WDK, MSBuild) that needs no installation.
 
----
+1. Download the Windows 11 EWDK ISO (build 26100 or newer) from [Microsoft](https://learn.microsoft.com/en-us/windows-hardware/drivers/download-the-wdk).
+2. Extract it to `C:\EWDK`, or mount it and set `EWDK` to the mounted drive. The optional Python extractor runs without mounting or elevation:
 
-## 1. Toolchain Setup
+   ```powershell
+   python -m pip install pycdlib
+   python tools\extract_ewdk.py <iso> C:\EWDK
+   ```
 
-### Option A: Standalone EWDK (Zero-Install)
-Microsoft provides a self-contained command-line build environment containing MSVC, Windows SDK, WDK, and MSBuild.
+   A non-zero exit means extraction failed; do not use an incomplete toolchain.
 
-1. Download the Windows 11 EWDK ISO (Build 26100 or newer) from Microsoft's hardware dev center.
-2. Mount or extract the ISO to `C:\EWDK`.
-3. The build script automatically detects `C:\EWDK\BuildEnv\SetupBuildEnv.cmd`.
+Visual Studio 2022 with the WDK also builds the projects (`src\driver\deckbtusb.vcxproj`, `src\filter\deckbtflt.vcxproj`, `src\isotest\isotest.vcxproj`), but the scripts expect the EWDK.
 
-### Option B: Visual Studio 2022 + WDK
-If you have Visual Studio 2022 with the "Desktop development with C++" workload and the Windows 11 WDK installed, open a **Developer Command Prompt for VS 2022**.
-
----
-
-## 2. Compiling the Drivers
-
-Run the build script from the repository root:
+## Driver packages
 
 ```cmd
-tools\build.cmd            :: Release build (default)
-tools\build.cmd Debug      :: Debug build
+rem Release
+tools\build.cmd
+rem Debug
+tools\build.cmd Debug
 ```
 
-This compiles and packages both drivers:
-- `src\driver\x64\Release\deckbtusb\`: `deckbtusb.sys` + `.inf` + `.cat` (Virtual UdeCx Host Controller)
-- `src\filter\x64\Release\deckbtflt\`: `deckbtflt.sys` + `.inf` + `.cat` (Bus Interface Lower Filter)
+`build.cmd` first runs `tools\stage-firmware.ps1`, which copies the five controller firmware files from the installed Valve/Qualcomm package (`qcbtuart.inf_amd64_*` in the DriverStore) into `src\driver\`. It then builds and test-signs:
 
----
+- `src\driver\x64\<cfg>\deckbtusb\`: `deckbtusb.sys`, `.inf`, `.cat`, firmware
+- `src\filter\x64\<cfg>\deckbtflt\`: `deckbtflt.sys`, `.inf`, `.cat`
 
-## 3. Host-Side Verification (Self-Tests)
+The build checks that the package contains every file its INF lists. Test signing uses the WDK's per-user test certificate (`WDKTestCert <user>`), which MSBuild creates on first use. Firmware files and build outputs are ignored by git.
 
-The repository includes four unit test suites that compile the production source files directly into user-mode executables, allowing verification without deploying a kernel driver:
+`tools\build-isotest.cmd` builds the isochronous test stack (`isotest.sys`, `isoflt.sys`, `isotest.exe`). The Bluetooth driver does not need it.
+
+## Tests
 
 ```cmd
 tools\selftest.cmd
 ```
 
-| Test Suite | Source File | Validations |
+No elevation, no driver installation, no hardware. Each C suite compiles production source files into a user-mode program:
+
+| Suite | Sources under test | Covers |
 |---|---|---|
-| `descriptor_selftest` | `src\common\usb_descriptors.c` | Verifies full 200-byte configuration set and UdeCx High-Speed / isoch constraints |
-| `hci_selftest` | `src\driver\hci_stub.c` | Verifies 43 HCI return parameter lengths, LE state masks, FIFO boundaries |
-| `qca_selftest` | `src\common\qca_tlv.c` | Verifies TLV header parser and 243-byte segmentation against real firmware |
-| `qca_fsm_selftest` | `src\common\qca_init_fsm.c` | Runs full 673-command bring-up FSM against a mock chip |
+| `descriptor_selftest` | `usb_descriptors.c` | configuration descriptor bytes, UdeCx High Speed and isochronous rules |
+| `hci_selftest` | `hci_stub.c` | stub replies (43-command initialisation), LE state mask, FIFO limits |
+| `qca_selftest` | `qca_tlv.c` | TLV parsing and segmentation against the real firmware files |
+| `tlv_segment_selftest` | `qca_tlv.c` | segment boundaries for the firmware sizes, parameter lengths, acknowledgement rules |
+| `qca_fsm_selftest` | `qca_init_fsm.c` | complete bring-up against a mock controller |
+| `nvm_selftest` | `qca_init_fsm.c`, `qca_tlv.c` | NVM selection, the HCI rate-byte rewrite |
+| `identify_selftest` | `qca_identify.c` | version-response parsing, including replies recorded from the controller |
+| `h4_selftest` | `h4_codec.c` | H4 framing, split and malformed input, in-band sleep bytes |
+| `bridge_selftest` | `hci_bridge.c` | readiness hold, vendor-event filtering, ACL credits |
+| `sco_usb_selftest` | `sco_usb.c` | SCO pacing, OUT reassembly and resynchronisation, IN re-framing |
+| `sco_route_selftest` | `sco_route.c` | enhanced synchronous-connection rewrite and opcode restore |
+| `isotest_selftest` | `isotest/descriptors.c` | test-device alternate settings |
 
-*Note: For `qca_selftest` and `qca_fsm_selftest`, point the `QCA_FW_DIR` environment variable to a directory containing `hpbtfw21.tlv` and `hpnv21.bin` if testing outside a system with Qualcomm drivers installed.*
+It then runs these script suites:
 
----
+| Row | Script | Covers |
+|---|---|---|
+| `isoc_reference` | `check-isoc-reference.cmd` | the isochronous measurement record is unchanged (SHA-256 manifest) |
+| `operator` | `operator-selftest.ps1` | session and recovery scripts, with device, service and registry access mocked |
+| `service` | `service-selftest.ps1` | service-record reads, leftover cleanup, and the vendor-radio health guard |
+| `recovery` | `recovery-selftest.ps1` | failed handback, certificate scope, package-query failures, and recovery snapshot preservation with machine operations mocked |
+| `uart_identify` | `uart-identify-selftest.ps1` | the real UART identify routines from `qca_uart.c` against simulated WDF and serial faults |
 
-## 4. Test Installation
+`qca_selftest`, `qca_fsm_selftest` and `nvm_selftest` read the firmware from the newest installed `qcbtuart.inf_amd64_*` package in the DriverStore. Set `QCA_FW_DIR` to another directory containing `hpbtfw21.tlv` and the `hpnv21*` files to override that. `EWDK` overrides the toolchain location (default `C:\EWDK`) for the build and test scripts.
 
-To test the driver locally on a machine with test signing enabled:
+### Mutation checks
 
 ```powershell
-# Open an elevated PowerShell prompt in tools/
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\m1-install.ps1 -Stage Prepare    # Installs test cert, configures testsigning (requires reboot)
-# ---- REBOOT ----
-.\m1-install.ps1 -Stage Install    # Stages driver package and creates root\DeckBtUsb devnode
-.\m1-diag.ps1                      # Displays diagnostic registry breadcrumbs and EP0 transfer log
-.\m1-install.ps1 -Stage Uninstall  # Clean rollback
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\qca-mutation-check.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\operator-mutation-check.ps1
+```
+
+These scripts deliberately introduce faults into temporary source copies, such as accepting an invalid firmware response or continuing recovery after package removal fails. The corresponding test must detect each fault. A check fails if the altered code still passes, or if the source changed and the fault could not be applied. Neither script installs a driver or operates the radio.
+
+### Reference check
+
+```cmd
+tools\check-reference.cmd
+```
+
+Regenerates the stub's descriptors and HCI exchanges with `tools\refdump.c` and compares them with `reference\VIRTUAL-HCI-REFERENCE.txt`. A difference means the USB frontend changed. If the change is intended, run `tools\refdump.cmd` and commit the new reference.
+
+## Development without the radio
+
+`tools\stub-install.ps1` installs the driver on a root-enumerated device with the synthetic HCI stub. Windows can then enumerate and initialise the virtual radio without the Qualcomm controller. It requires the stock radio to be disabled (Windows allows one radio). Stages, run from an elevated PowerShell:
+
+```powershell
+tools\stub-install.ps1 -Stage Prepare     # test certificate, test signing; restart afterwards
+tools\stub-install.ps1 -Stage Install     # stage the package, create the root device (disarmed)
+tools\stub-install.ps1 -Stage Arm         # start the virtual radio once
+tools\stub-install.ps1 -Stage Disarm      # stop it
+tools\stub-install.ps1 -Stage Uninstall   # remove the root device and package
+tools\stub-install.ps1 -Stage RestoreRadio  # re-enable the stock radio
+tools\diag.ps1                            # decode the driver's registry records
 ```

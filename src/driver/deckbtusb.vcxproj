@@ -48,7 +48,7 @@
     <ClCompile>
       <WarningLevel>Level4</WarningLevel>
       <TreatWarningAsError>true</TreatWarningAsError>
-      <AdditionalIncludeDirectories>$(UdeIncludeDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(UdeIncludeDir);..\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <AdditionalDependencies>$(UdeLibDir)\udecxstub.lib;%(AdditionalDependencies)</AdditionalDependencies>
@@ -66,12 +66,27 @@
     <ClCompile Include="device.c" />
     <ClCompile Include="endpoints.c" />
     <ClCompile Include="hci_stub.c" />
+    <ClCompile Include="qca_uart.c" />
+    <ClCompile Include="..\common\h4_codec.c" />
+    <ClCompile Include="..\common\hci_bridge.c" />
+    <ClCompile Include="..\common\qca_identify.c" />
+    <ClCompile Include="..\common\qca_init_fsm.c" />
+    <ClCompile Include="..\common\qca_tlv.c" />
     <ClCompile Include="..\common\usb_descriptors.c" />
+    <ClCompile Include="..\common\sco_usb.c" />
+    <ClCompile Include="..\common\sco_route.c" />
   </ItemGroup>
 
   <ItemGroup>
     <ClInclude Include="deckbtusb.h" />
     <ClInclude Include="hci_stub.h" />
+    <ClInclude Include="qca_uart.h" />
+    <ClInclude Include="..\include\h4_codec.h" />
+    <ClInclude Include="..\include\hci_bridge.h" />
+    <ClInclude Include="..\include\hci_transport.h" />
+    <ClInclude Include="..\include\qca_init_fsm.h" />
+    <ClInclude Include="..\include\qca_protocol.h" />
+    <ClInclude Include="..\include\qca_tlv.h" />
     <ClInclude Include="..\include\usb_descriptors.h" />
   </ItemGroup>
 
@@ -81,6 +96,11 @@
 
   <ItemGroup>
     <FilesToPackage Include="$(TargetPath)" Condition="'$(ConfigurationType)'=='Driver'" />
+    <FilesToPackage Include="hpbtfw21.tlv" Condition="Exists('hpbtfw21.tlv')" />
+    <FilesToPackage Include="hpnv21.bin" Condition="Exists('hpnv21.bin')" />
+    <FilesToPackage Include="hpnv21g.bin" Condition="Exists('hpnv21g.bin')" />
+    <FilesToPackage Include="hpnv21.309" Condition="Exists('hpnv21.309')" />
+    <FilesToPackage Include="hpnv21g.309" Condition="Exists('hpnv21g.309')" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

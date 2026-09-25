@@ -1,5 +1,5 @@
 /*
- * isotest.h - Kernel-mode declarations for DeckBtIsoTest UDE driver (Stage 2).
+ * isotest.h - Kernel-mode declarations for DeckBtIsoTest UDE driver.
  *
  * This driver creates a throwaway UDE host controller and plugs in a high-speed,
  * non-composite, vendor-class USB device with the exact same isochronous endpoint

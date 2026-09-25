@@ -1,51 +1,44 @@
-# VirtBthUsb Project Roadmap
+# Roadmap
 
-This document outlines the milestones for VirtBthUsb, bridging non-USB Bluetooth controllers (specifically the Qualcomm WCN6855 on the Steam Deck OLED) into Windows' native USB Bluetooth stack.
+Implemented features and remaining work. Test results are in [VERIFICATION.md](VERIFICATION.md).
 
----
+## Virtual USB radio
 
-## Milestone 1: Virtual USB Controller & BTHUSB Binding
-Status: Complete
-- [x] KMDF UdeCx virtual host controller (`deckbtusb.sys`)
-- [x] High-Speed USB descriptor tables conforming to UdeCx constraints (`usb_descriptors.c`)
-- [x] Synthetic HCI controller stub answering mandatory 43-command initialization (`hci_stub.c`)
-- [x] Lower filter driver capturing bus-interface queries (`deckbtflt.c`)
-- [x] Verified: Windows brings up `USB\ROOT_HUB30`, binds `BTHUSB.SYS`, and creates `MS_BTHBRB`, `MS_BTHLE`, and `MS_RFCOMM` enumerators.
-- [x] Baseline USB descriptors and expected HCI responses captured (`reference/VIRTUAL-HCI-REFERENCE.txt`)
+- [x] UdeCx virtual host controller with an emulated USB Bluetooth device
+- [x] Descriptors that satisfy UdeCx's High Speed and isochronous rules
+- [x] Synthetic HCI stub answering Windows' initialisation
+- [x] `BTHUSB`/`BTHPORT` bind and create the Bluetooth enumerators
 
----
+## Isochronous transport
 
-## Milestone 2: Isochronous Data Plane & QueryBusTime Filter
-Status: Complete
-- [x] Isochronous endpoint handling on Interface 1 alternate settings 0–6
-- [x] Measured and recorded packet geometry support matrix under `ucx01000` (432 transfer cells)
-- [x] QueryBusTime / QueryBusTimeEx synthesis implemented in `deckbtflt.sys` / `isoflt.sys`
-- [x] Verified clean transfer teardown and cancellation
-- [x] Geometry matrix and baseline measurements recorded (`reference/stage2-isoc-reference/`)
----
+- [x] Alternate settings 0-6 on the SCO interface
+- [x] Packet geometry measured under `ucx01000` (432 transfer cells)
+- [x] `QueryBusTime` substitution filter for the test stack
 
-## Milestone 3: Qualcomm WCN6855 UART Transport Bridge
-Status: In progress
-- [ ] FDO binding to `ACPI\QCOM2066` SerCx2 resource-hub UART connection
-- [ ] Firmware download FSM streaming rampatch (`hpbtfw21.tlv`) and NVM (`hpnv21.bin`) at 3,000,000 baud
-- [ ] Switchable backend selector (`REG_DWORD` in hardware key: `0 = stub`, `1 = UART`) to allow instant diffing against the synthetic stub baseline
-- [ ] Bidirectional ACL routing and event dispatch
-- [ ] Acceptance criteria: RF HID input (mouse / gamepad) reaches Windows
+## QCA2066 UART transport
 
----
+- [x] Take the controller from the stock driver through its SerCx2 connection, with the CTS wake handshake
+- [x] Bring-up from ROM or a controller left running vendor firmware: identify, 3,000,000 baud, rampatch, NVM, `HCI_Reset`
+- [x] Bridge to `BTHUSB`: commands, events, ACL, in-band sleep
+- [x] Discovery, pairing, encryption, BLE input
+- [x] Hand the controller back to the stock driver without a reboot
 
-## Milestone 4: Power Management & System Sleep
-Status: Planned
-- [ ] D0 / D3 power transitions
-- [ ] S0ix Modern Standby suspend / resume cycles
-- [ ] Fast firmware re-download on resume (~0.5s)
-- [ ] Pairing retention across sleep cycles and reboots
+## Sleep
 
----
+- [x] Re-initialise the controller after S3 and replace the emulated USB device
+- [x] Pairings kept across sleep
 
-## Milestone 5: SCO / eSCO In-Band Voice Audio
-Status: Planned
-- [ ] Fixed-latency jitter buffer between USB isochronous endpoints and UART SCO packets
-- [ ] Bluetooth HFP voice profile negotiation
-- [ ] In-band audio capture (microphone) and render (speaker)
-- [ ] Acceptance criteria: Functional Bluetooth headset microphone in Windows Sound Settings
+## Voice
+
+- [x] SCO/eSCO over the isochronous endpoints with pacing
+- [x] Voice links placed on the HCI data path (enhanced synchronous connection setup)
+- [x] Wideband (mSBC) microphone and speaker through Windows' Hands-Free driver
+
+## Open work
+
+- **Signing.** A Microsoft attestation signature, which would remove the need for test signing. This is the main obstacle to normal use.
+- **Start at boot**, with automatic fallback to the stock driver if bring-up fails.
+- **Controller crash recovery** (the controller resetting itself while in use).
+- **Narrowband voice** (CVSD, alternate settings 1-5): implemented, not yet tested.
+- **Testing:** long calls, calls across sleep, hibernate and Fast Startup, battery impact, Memory Integrity, other units.
+- **Microphone start latency:** opening the microphone takes about 0.9 s before audio flows.

@@ -1,9 +1,7 @@
 /*
  * hci_selftest.c - exercises the real src/driver/hci_stub.c translation unit in user mode.
  *
- * The stub is what answers BTHUSB during M1 bring-up; a framing bug in it looks exactly like
- * "BTHUSB will not bind to an emulated device", i.e. it would falsely sink the whole project's
- * central hypothesis. So it is validated here before anyone installs the driver.
+ * Validates synthetic controller responses against BTHUSB requirements before driver installation.
  *
  * Build: tools\selftest.cmd (compiles this plus hci_stub.c and runs it)
  */
@@ -13,6 +11,8 @@
 #include <string.h>
 
 #include "../src/driver/hci_stub.h"
+#include "../src/include/arming.h"
+#include "../src/include/hci_transport.h"
 
 static int g_fail = 0;
 
@@ -84,8 +84,8 @@ static void TestReturnParameters(void)
         { HCI_OP_LE_READ_SUPPORTED_STATES,6 + 8,  "LE_Read_Supported_States" },
         { HCI_OP_SET_EVENT_MASK,          6,      "Set_Event_Mask (status only)" },
         { 0x0C13,                         6,      "Write_Local_Name (unknown -> status only)" },
-        /* Added after the first live M1 run, where a status-only reply to these produced
-         * BTHUSB event 5 ("expected an HCI event with a certain size") or a timeout. */
+        /* A status-only reply to these commands produces BTHUSB event 5
+         * ("expected an HCI event with a certain size") or a command timeout. */
         { HCI_OP_READ_LOCAL_NAME,         6 + 248, "Read_Local_Name" },
         { HCI_OP_READ_CLASS_OF_DEVICE,    6 + 3,   "Read_Class_Of_Device" },
         { HCI_OP_READ_VOICE_SETTING,      6 + 2,   "Read_Voice_Setting" },
@@ -168,8 +168,8 @@ static void TestScoFeatureBits(void)
 }
 
 /*
- * BTHUSB event 34 on the first live run: "minimum required supported state mask is
- * 0x2491f7fffff, got 0x1fffffffff". Assert the advertised mask now covers the requirement.
+ * BTHUSB event 34: "minimum required supported state mask is
+ * 0x2491f7fffff, got 0x1fffffffff". Assert the advertised mask covers the requirement.
  */
 static void TestLeStateMask(void)
 {
@@ -189,7 +189,7 @@ static void TestLeStateMask(void)
     const unsigned long long required = 0x2491f7fffffULL;
     printf("       advertised 0x%llX, required 0x%llX\n", mask, required);
     CHECK((mask & required) == required, "advertised mask is a superset of the required mask");
-    CHECK(mask != 0x1fffffffffULL, "no longer the old 0x1FFFFFFFFF that BTHUSB rejected");
+    CHECK(mask != 0x1fffffffffULL, "advertised mask meets BTHUSB requirement");
 }
 
 /* CVSD and mSBC must both be advertised - they are the Hands-Free voice codecs. */
@@ -303,6 +303,185 @@ static void TestUndersizedBuffer(void)
     CHECK(!HciStubHasEvent(&stub), "oversized event is not left blocking the FIFO");
 }
 
+static void TestTransportSeam(void)
+{
+    HCI_STUB stub;
+    HCI_TRANSPORT transport;
+    UCHAR evt[HCI_MAX_EVENT_SIZE];
+    ULONG written = 0;
+    UCHAR dummy[64] = { 0 };
+
+    memset(&transport, 0xCC, sizeof(transport));
+    HciStubInit(&stub);
+    HciStubBindTransport(&transport, &stub);
+
+    printf("HCI_TRANSPORT seam: vtable binding and stream contracts\n");
+
+
+    /* Initial stream emptiness */
+    CHECK(!HciTransportHasStream(&transport, HciStreamEvent), "event stream starts empty");
+    CHECK(!HciTransportHasStream(&transport, HciStreamAcl), "ACL stream starts empty");
+    CHECK(!HciTransportHasStream(&transport, HciStreamSco), "SCO stream starts empty");
+
+    /* Non-event streams are always empty and cannot be popped */
+    written = 999;
+    CHECK(!HciTransportPopStream(&transport, HciStreamAcl, evt, sizeof(evt), &written),
+          "PopStream on HciStreamAcl returns 0");
+    CHECK(written == 0, "PopStream on HciStreamAcl writes 0 bytes");
+
+    written = 999;
+    CHECK(!HciTransportPopStream(&transport, HciStreamSco, evt, sizeof(evt), &written),
+          "PopStream on HciStreamSco returns 0");
+    CHECK(written == 0, "PopStream on HciStreamSco writes 0 bytes");
+
+    /* LastEventLength starts at 0 */
+    CHECK(HciTransportLastEventLength(&transport) == 0, "LastEventLength is 0 before any command");
+
+    /* SubmitAcl and SubmitSco accept-and-discard */
+    CHECK(HciTransportSubmitAcl(&transport, dummy, sizeof(dummy)) == 1,
+          "SubmitAcl accepts and discards (returns 1)");
+    CHECK(!HciTransportHasStream(&transport, HciStreamAcl), "ACL stream remains empty after SubmitAcl");
+
+    CHECK(HciTransportSubmitSco(&transport, dummy, sizeof(dummy)) == 1,
+          "SubmitSco accepts and discards (returns 1)");
+    CHECK(!HciTransportHasStream(&transport, HciStreamSco), "SCO stream remains empty after SubmitSco");
+
+    /* Submit command through vtable: HCI_Reset */
+    {
+        UCHAR cmd[16];
+        ULONG cmdLen = MakeCmd(cmd, HCI_OP_RESET, NULL, 0);
+
+        CHECK(HciTransportSubmitCommand(&transport, cmd, cmdLen) == 1,
+              "SubmitCommand(HCI_Reset) through vtable succeeds");
+        CHECK(HciTransportLastEventLength(&transport) == 6,
+              "LastEventLength matches queued event (6 bytes for HCI_Reset)");
+        CHECK(HciTransportHasStream(&transport, HciStreamEvent) == 1,
+              "HasStream(HciStreamEvent) reports complete packet available");
+        CHECK(!HciTransportHasStream(&transport, HciStreamAcl),
+              "HasStream(HciStreamAcl) remains 0");
+        CHECK(!HciTransportHasStream(&transport, HciStreamSco),
+              "HasStream(HciStreamSco) remains 0");
+
+        /* Pop through vtable */
+        written = 0;
+        CHECK(HciTransportPopStream(&transport, HciStreamEvent, evt, sizeof(evt), &written) == 1,
+              "PopStream(HciStreamEvent) succeeds");
+        CHECK(written == 6, "popped 6 bytes");
+        CHECK(evt[0] == HCI_EVT_COMMAND_COMPLETE, "event code 0x0E");
+        CHECK((USHORT)(evt[3] | (evt[4] << 8)) == HCI_OP_RESET, "opcode echoed");
+        CHECK(!HciTransportHasStream(&transport, HciStreamEvent),
+              "event stream empty after pop");
+    }
+
+    /* Return parameters through vtable: Read_Local_Version, Read_BD_ADDR, Read_Local_Name */
+    {
+        struct { USHORT opcode; ULONG expectLen; const char *name; } cases[] = {
+            { HCI_OP_READ_LOCAL_VERSION, 6 + 8, "Read_Local_Version_Information" },
+            { HCI_OP_READ_BD_ADDR, 6 + 6, "Read_BD_ADDR" },
+            { HCI_OP_READ_LOCAL_NAME, 6 + 248, "Read_Local_Name" },
+            { HCI_OP_READ_BUFFER_SIZE, 6 + 7, "Read_Buffer_Size" },
+        };
+
+        for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+            UCHAR cmd[16];
+            ULONG cmdLen = MakeCmd(cmd, cases[i].opcode, NULL, 0);
+
+            CHECK(HciTransportSubmitCommand(&transport, cmd, cmdLen) == 1,
+                  "%s: SubmitCommand through vtable succeeds", cases[i].name);
+            CHECK(HciTransportLastEventLength(&transport) == cases[i].expectLen,
+                  "%s: LastEventLength matches expected", cases[i].name);
+
+            written = 0;
+            CHECK(HciTransportPopStream(&transport, HciStreamEvent, evt, sizeof(evt), &written) == 1,
+                  "%s: PopStream succeeds", cases[i].name);
+            CHECK(written == cases[i].expectLen,
+                  "%s: popped length matches expected (%lu)", cases[i].name, written);
+        }
+    }
+
+    /* PopStream contract: undersized buffer leaves packet queued, never partially fills */
+    {
+        UCHAR cmd[16];
+        ULONG cmdLen = MakeCmd(cmd, HCI_OP_READ_LOCAL_SUPPORTED_CMDS, NULL, 0); /* 70-byte event */
+        UCHAR tiny[8];
+
+        CHECK(HciTransportSubmitCommand(&transport, cmd, cmdLen) == 1,
+              "SubmitCommand(Read_Local_Supported_Commands) queued 70-byte event");
+        CHECK(HciTransportLastEventLength(&transport) == 70, "LastEventLength is 70");
+
+        written = 999;
+        CHECK(HciTransportPopStream(&transport, HciStreamEvent, tiny, sizeof(tiny), &written) == 0,
+              "PopStream into undersized buffer returns 0 per contract");
+        CHECK(written == 0, "*Written is 0 on undersized PopStream");
+        CHECK(HciTransportHasStream(&transport, HciStreamEvent) == 1,
+              "packet was left queued after undersized PopStream attempt");
+
+        /* Now pop with full capacity: packet is still there! */
+        written = 0;
+        CHECK(HciTransportPopStream(&transport, HciStreamEvent, evt, sizeof(evt), &written) == 1,
+              "PopStream with sufficient buffer retrieves the queued packet");
+        CHECK(written == 70, "retrieved full 70-byte event");
+        CHECK(!HciTransportHasStream(&transport, HciStreamEvent), "stream now empty");
+    }
+
+    /* Reset clears queued events and resets LastEventLength */
+    {
+        UCHAR cmd[16];
+        ULONG cmdLen = MakeCmd(cmd, HCI_OP_RESET, NULL, 0);
+
+        CHECK(HciTransportSubmitCommand(&transport, cmd, cmdLen) == 1, "command queued");
+        CHECK(HciTransportHasStream(&transport, HciStreamEvent) == 1, "event pending");
+
+        HciTransportReset(&transport);
+
+        CHECK(!HciTransportHasStream(&transport, HciStreamEvent),
+              "Reset empties the event FIFO");
+        CHECK(HciTransportLastEventLength(&transport) == 0,
+              "Reset clears LastEventLength to 0");
+        written = 999;
+        CHECK(!HciTransportPopStream(&transport, HciStreamEvent, evt, sizeof(evt), &written),
+              "PopStream fails on reset FIFO");
+        CHECK(written == 0, "written is 0");
+    }
+}
+
+static void TestArmingGate(void)
+{
+    struct {
+        unsigned char readSucceeded;
+        unsigned long type;
+        unsigned long size;
+        unsigned long value;
+        unsigned char expectedArmed;
+        const char *description;
+    } cases[] = {
+        /* Armed: exact REG_DWORD 1 with 4 bytes */
+        { 1, DECKBT_REG_DWORD, 4, 1, 1, "exact REG_DWORD 1 arms" },
+
+        /* Disarmed cases required by Arbiter */
+        { 0, DECKBT_REG_DWORD, 4, 1, 0, "read failed -> disarmed" },
+        { 1, 1 /* REG_SZ */, 2, '1', 0, "REG_SZ containing '1' -> disarmed" },
+        { 1, DECKBT_REG_DWORD, 2, 1, 0, "REG_DWORD size 2 (short) -> disarmed" },
+        { 1, DECKBT_REG_DWORD, 4, 0, 0, "REG_DWORD value 0 -> disarmed" },
+        { 1, DECKBT_REG_DWORD, 4, 2, 0, "REG_DWORD value 2 -> disarmed" },
+        { 1, DECKBT_REG_DWORD, 4, 0x10001, 0, "REG_DWORD value 0x10001 (low bit 1 but high bits set) -> disarmed" },
+
+    };
+
+    printf("Arming gate table: fail-closed evaluation\n");
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        unsigned char armed = DeckBtArmingGateArmed(
+            cases[i].readSucceeded,
+            cases[i].type,
+            cases[i].size,
+            cases[i].value);
+
+        CHECK(armed == cases[i].expectedArmed,
+              "%s: got %u, expected %u",
+              cases[i].description, armed, cases[i].expectedArmed);
+    }
+}
+
 int main(void)
 {
     TestEnvelope();
@@ -316,7 +495,8 @@ int main(void)
     TestMalformed();
     TestFifoBounds();
     TestUndersizedBuffer();
-
+    TestTransportSeam();
+    TestArmingGate();
     printf("\n%s\n", g_fail ? "HCI SELFTEST FAILED" : "HCI SELFTEST PASSED");
     return g_fail ? 1 : 0;
 }

@@ -6,6 +6,7 @@ normal user.
 
 Usage:
     py extract_ewdk.py <iso> <destdir>
+Install the dependency with: python -m pip install pycdlib
 """
 
 from __future__ import annotations
@@ -28,11 +29,13 @@ def main() -> int:
     iso.open(iso_path)
     if not iso.has_udf():
         print("ERROR: image has no UDF filesystem")
+        iso.close()
         return 1
 
     files = 0
     dirs = 0
     total = 0
+    failures = 0
     t0 = time.time()
     last = 0.0
 
@@ -48,6 +51,7 @@ def main() -> int:
                 with open(out_path, "wb") as fh:
                     iso.get_file_from_iso_fp(fh, udf_path=udf_path, blocksize=CHUNK)
             except Exception as exc:  # keep going; report at the end
+                failures += 1
                 print(f"  !! {udf_path}: {exc}", flush=True)
                 continue
             files += 1
@@ -62,7 +66,10 @@ def main() -> int:
                 )
 
     iso.close()
-    dt = time.time() - t0
+    dt = max(time.time() - t0, 1e-6)
+    if failures:
+        print(f"FAILED: {failures} file(s) could not be extracted; destination is incomplete.", flush=True)
+        return 1
     print(
         f"DONE  {files} files, {dirs} dirs, {total / (1 << 30):.2f} GiB in {dt / 60:.1f} min "
         f"({total / dt / (1 << 20):.1f} MiB/s)",

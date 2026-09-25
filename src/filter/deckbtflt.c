@@ -1,6 +1,10 @@
 /*
  * deckbtflt.c - Lower filter driver attached beneath BTHUSB.SYS or WinUSB.
  *
+ * DeckBtFlt is optional: the working Bluetooth setup does not install it
+ * (BTHUSB does not use QueryBusTime); it is kept for the isochronous test
+ * stack and as a fallback.
+ *
  * Intercepts and logs IRP_MN_QUERY_INTERFACE requests for USB bus interfaces,
  * and provides optional QueryBusTime synthesis for UdeCx isochronous support.
  *
@@ -282,10 +286,10 @@ DeckBtFltRecord(
 }
 
 /*
- * Synthetic clock derived from KeQueryPerformanceCounter().
- *
  * QueryBusTime returns a 1 kHz frame counter (1 ms units).
  * QueryBusTimeEx returns an 8 kHz microframe counter (125 microsecond units, frame << 3).
+ *
+ * Reference: https://github.com/vadimgrn/usbip-win2 (drivers/ude_filter/query_interface.cpp)
  */
 static ULONG
 DeckBtFltGetSyntheticBusFrame(_Inout_ PDECKBTFLT_CONTEXT Context)
@@ -501,8 +505,7 @@ DeckBtFltSyntheticQueryControllerType(
 /*
  * Hooks the lower stack's USBDI interface for QueryBusTime and QueryBusTimeEx.
  *
- * Probes the lower stack implementation; on error, substitutes a synthetic
- * monotonic clock (1 kHz frame for QueryBusTime, 8 kHz microframe for QueryBusTimeEx).
+ * Reference: https://github.com/vadimgrn/usbip-win2 (drivers/ude_filter/query_interface.cpp)
  */
 static VOID
 DeckBtFltHookInterface(

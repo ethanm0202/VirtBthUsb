@@ -95,7 +95,7 @@ int main(void)
     CHECK(rd16(&ep[4]) == DECKBT_EP_EVENT_MAXPACKET, "event wMaxPacketSize %u", rd16(&ep[4]));
     ep += 7;
     CHECK(ep[2] == DECKBT_EP_ACL_OUT && (ep[3] & 3) == XFER_BULK, "EP 0x02 bulk OUT");
-    CHECK(rd16(&ep[4]) == 512, "ACL OUT wMaxPacketSize 512 (UDE constraint 2), got %u", rd16(&ep[4]));
+    CHECK(rd16(&ep[4]) == 512, "ACL OUT wMaxPacketSize 512, got %u", rd16(&ep[4]));
     ep += 7;
     CHECK(ep[2] == DECKBT_EP_ACL_IN && (ep[3] & 3) == XFER_BULK, "EP 0x82 bulk IN");
     CHECK(rd16(&ep[4]) == 512, "ACL IN wMaxPacketSize 512, got %u", rd16(&ep[4]));
@@ -120,7 +120,7 @@ int main(void)
         CHECK(rd16(&o_ep[4]) == want && rd16(&i_ep[4]) == want,
               "alt %u: wMaxPacketSize %u per Bluetooth spec table", alt, want);
         CHECK(o_ep[6] >= 4 && i_ep[6] >= 4,
-              "alt %u: bInterval %u >= 4 (UDE constraint 3)", alt, o_ep[6]);
+              "alt %u: bInterval %u >= 4", alt, o_ep[6]);
     }
 
     printf("string descriptors\n");
