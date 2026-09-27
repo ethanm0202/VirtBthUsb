@@ -103,7 +103,11 @@ DeckBtEvtDeviceReset(
     WdfRequestComplete(Request, STATUS_SUCCESS);
 }
 
-/* Creates the endpoint's I/O queue and binds it. Shared by the default and data endpoints. */
+/*
+ * Creates the endpoint's I/O queue and binds it. Shared by the default and data endpoints. The
+ * queue and the endpoint object both carry the endpoint's identity: queue callbacks need it per
+ * URB, and EvtUsbDeviceEndpointsConfigure needs it to recognise the endpoints it is given.
+ */
 static NTSTATUS
 DeckBtCreateEndpointQueue(
     _In_ PDECKBT_CONTROLLER Controller,
@@ -144,6 +148,13 @@ DeckBtCreateEndpointQueue(
     epContext->Controller = Controller;
     epContext->Address = Address;
     epContext->MaxPacketSize = MaxPacketSize;
+
+    WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attributes, DECKBT_ENDPOINT);
+    status = WdfObjectAllocateContext(Endpoint, &attributes, (PVOID *)&epContext);
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
+    *epContext = *DeckBtGetEndpoint(queue);
 
     UdecxUsbEndpointSetWdfIoQueue(Endpoint, queue);
     return STATUS_SUCCESS;
@@ -221,6 +232,25 @@ DeckBtEvtEndpointAdd(
     return status;
 }
 
+/* Largest SCO wMaxPacketSize in an endpoint list, or -1 if the list holds no SCO endpoint. */
+static LONG
+DeckBtScoPacketSizeIn(
+    _In_reads_(Count) UDECXUSBENDPOINT *Endpoints,
+    _In_ ULONG Count)
+{
+    LONG size = -1;
+
+    for (ULONG i = 0; i < Count; i++) {
+        PDECKBT_ENDPOINT endpoint = DeckBtGetEndpoint(Endpoints[i]);
+
+        if ((endpoint->Address == DECKBT_EP_SCO_OUT || endpoint->Address == DECKBT_EP_SCO_IN) &&
+            (LONG)endpoint->MaxPacketSize > size) {
+            size = endpoint->MaxPacketSize;
+        }
+    }
+    return size;
+}
+
 VOID
 DeckBtEvtEndpointsConfigure(
     _In_ UDECXUSBDEVICE UdecxUsbDevice,
@@ -230,21 +260,43 @@ DeckBtEvtEndpointsConfigure(
     PDECKBT_CONTROLLER controller =
         ((PDECKBT_ENDPOINT)WdfObjectGetTypedContext(UdecxUsbDevice, DECKBT_ENDPOINT))->Controller;
 
+    LONG configured = DeckBtScoPacketSizeIn(Params->EndpointsToConfigure,
+                                            Params->EndpointsToConfigureCount);
+    LONG released = DeckBtScoPacketSizeIn(Params->ReleasedEndpoints, Params->ReleasedEndpointsCount);
+    ULONG alt = 0;
+
     /*
-     * UdeCx is documented-by-practice to pass a wrong or late InterfaceNumber/NewInterfaceSetting
-     * here (see usbip-win2 drivers/ude/device.cpp), so the SCO path never sizes packets from it:
-     * each URB is sized from the endpoint it arrived on. Any SCO setting change ends the current
-     * voice stream, so parked transfers are cancelled and framing restarts.
+     * ConfigureType, InterfaceNumber and NewInterfaceSetting do not describe the request behind
+     * this callback. Observed with BTHUSB on Windows 11 25H2 (build 26200):
+     *   SET_CONFIGURATION   -> InterfaceSettingChange, interface 1, setting 0; configures 0x81/0x02/0x82
+     *   SET_INTERFACE(1, 6) -> InterfaceSettingChange, interface 1, setting 0, or DeviceInitialize for
+     *                          interface 0 the first time after SET_CONFIGURATION; configures 0x03/0x83
+     *   SET_INTERFACE(1, 0) -> InterfaceSettingChange, interface 1, setting 6; releases 0x03/0x83
+     * NewInterfaceSetting is the setting being left. The endpoint lists are accurate, so a SCO
+     * setting change is recognised from them: configured SCO endpoints carry the new setting's
+     * packet size, and SCO endpoints that are only released mean setting 0, whose zero-bandwidth
+     * endpoints UdeCx does not configure. Packets are never sized from this; each URB is sized
+     * from the endpoint it arrived on. A setting change ends the current voice stream, so parked
+     * transfers are cancelled and framing restarts.
      */
-    if (Params->ConfigureType == UdecxEndpointsConfigureTypeInterfaceSettingChange &&
-        Params->InterfaceNumber == DECKBT_IFACE_SCO) {
-        DeckBtScoFlush(controller);
-        WdfSpinLockAcquire(controller->Lock);
-        controller->ScoStats.AltSetting = Params->NewInterfaceSetting;
-        controller->ScoStats.AltChanges++;
-        WdfSpinLockRelease(controller->Lock);
-        DeckBtScoPublish(controller, TRUE);
+    if (configured < 0 && released < 0) {
+        WdfRequestComplete(Request, STATUS_SUCCESS);
+        return;
     }
+    if (configured > 0) {
+        for (ULONG setting = 1; setting <= DECKBT_SCO_ALT_MAX; setting++) {
+            if (DeckBtScoAltPacketSize[setting] == (USHORT)configured) {
+                alt = setting;
+            }
+        }
+    }
+
+    DeckBtScoFlush(controller);
+    WdfSpinLockAcquire(controller->Lock);
+    controller->ScoStats.AltSetting = alt;
+    controller->ScoStats.AltChanges++;
+    WdfSpinLockRelease(controller->Lock);
+    DeckBtScoPublish(controller, TRUE);
 
     WdfRequestComplete(Request, STATUS_SUCCESS);
 }

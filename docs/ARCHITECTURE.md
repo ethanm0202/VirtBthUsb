@@ -58,12 +58,13 @@ UdeCx and `ucx01000.sys` impose constraints that a real Full Speed dongle's desc
 4. **Dynamic endpoints.** `UdecxEndpointTypeSimple` forbids alternate settings, and SCO needs alternate settings 0-6. The device uses `UdecxEndpointTypeDynamic`.
 5. **No interface association.** A composite descriptor makes Windows insert `usbccgp.sys` and split the interfaces into separate devnodes. `BTHUSB.SYS` must own the whole device.
 6. **Reset callback.** Without `EvtUsbDeviceReset`, `BTHUSB` has no recovery path after an initialisation failure and the device stays in an error state.
+7. **Endpoint configuration metadata.** `EvtUsbDeviceEndpointsConfigure` reports the wrong request type, interface and setting: `SET_CONFIGURATION` arrives as a setting change on interface 1, the first `SET_INTERFACE` after it as `DeviceInitialize` for interface 0, and `NewInterfaceSetting` carries the setting being left. Only the endpoint lists are accurate, so SCO setting changes are detected from the SCO endpoints configured or released (`device.c`).
 
 The emulated device uses the hardware ID `USB\VID_0CF3&PID_6390`. Inbox `bth.inf` matches its compatible ID `USB\Class_E0&SubClass_01&Prot_01`, so `BTHUSB.SYS` is the function driver without any INF of this project.
 
-## UART backend
 The configuration descriptor does not advertise remote wakeup (`bmAttributes 0x80`), because the driver never signals a resume. `SET_FEATURE(DEVICE_REMOTE_WAKEUP)` is stalled as an unsupported feature, and `GET_STATUS` reports remote wakeup disabled.
 
+## UART backend
 
 `qca_uart.c` owns the controller's serial connection (a SerCx2 resource-hub connection from the ACPI `_CRS`). Blocking UART I/O runs on a dedicated system thread; PnP and power callbacks may wait for a bounded hand-back from that worker. Firmware buffers are nonpaged because parsing and segment copies also run under the controller spin lock at `DISPATCH_LEVEL`. [QCA2066.md](QCA2066.md) describes the controller-specific steps. In outline:
 

@@ -11,9 +11,13 @@ The driver and its service are named `DeckBtUsb`.
 
 ## Background
 
-The Steam Deck OLED's Bluetooth controller is a Qualcomm QCA2066 connected over a UART (ACPI device `QCOM2066`). Windows drives it through the UART transport stack: `qcbtuart.sys`, then `BthMini.sys`. That stack carries voice only over a hardware offload path. `BthMini.sys` accepts no other SCO mode from its transport and fails with `STATUS_DEVICE_CONFIGURATION_ERROR` (`0xC0000182`) otherwise. On the Deck, Hands-Free devices enumerate in offload mode (`_HCIBYPASS_`), and the headset microphone does not work. Music playback (A2DP) is unaffected.
+The Steam Deck OLED's Bluetooth controller, a Qualcomm QCA2066, is not a USB device. It sits on a serial line (a UART, ACPI device `QCOM2066`), and Windows drives it through a matching serial transport stack: `qcbtuart.sys`, then `BthMini.sys`. That stack handles call audio only through hardware offload, where voice leaves the controller on a separate audio path instead of passing through Windows. `BthMini.sys` rejects every other voice mode from its transport and fails with `STATUS_DEVICE_CONFIGURATION_ERROR` (`0xC0000182`). On the Deck, Hands-Free devices enumerate in offload mode (`_HCIBYPASS_`), and headset microphones do not work. Music playback (A2DP) is unaffected, because it travels as ordinary data.
 
-Windows' USB Bluetooth transport (`BTHUSB.SYS`) carries voice in-band, over isochronous USB endpoints. DeckBtUsb takes the UART controller from the stock driver, loads its firmware, and presents it through a virtual USB host controller (UdeCx) as a standard USB Bluetooth device. Windows loads `BTHUSB.SYS` and `BTHPORT.SYS` on that device, and voice travels over HCI like on any USB dongle.
+Windows has a second Bluetooth transport, `BTHUSB.SYS`, the inbox driver for USB Bluetooth radios. It carries voice in-band, as timed isochronous USB transfers, and needs no offload hardware. It only binds to USB devices, and the Deck's controller is not one.
+
+DeckBtUsb builds that USB device in software. The driver creates a virtual USB host controller (UdeCx) and plugs an emulated Bluetooth radio into it: device and configuration descriptors, a control endpoint for HCI commands, an interrupt endpoint for events, bulk endpoints for data, and isochronous endpoints with seven alternate settings for voice. Windows enumerates it like any USB dongle and loads its own `BTHUSB.SYS` and `BTHPORT.SYS` on top. Nothing in the Windows Bluetooth stack is patched or replaced; it sees an ordinary USB radio.
+
+Behind that device, DeckBtUsb does the stock serial driver's job itself. It takes the UART from the stock driver, wakes the controller, loads its Qualcomm firmware (a 155 KB patch and a board-specific configuration file, at 3,000,000 baud), and translates every packet between USB transfers on one side and H4-framed serial traffic on the other. Voice needs the most care. A real USB radio delivers audio at the pace of the air link, and `BTHUSB.SYS` learns the voice rate only from how fast its transfers complete, so the driver paces each isochronous transfer against a virtual 1 ms USB frame clock and re-cuts the controller's voice packets into the shapes a USB radio would produce. It also rewrites the controller's voice routing so audio comes back over the serial line instead of the offload path. When the session ends, the controller goes back to the stock driver in the state that driver expects, with every pairing intact.
 
 ```
 ┌──────────────────────────────────────────────┐
@@ -44,10 +48,13 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design and [docs/QCA206
 
 ## Status
 
+Headset microphones work. With DeckBtUsb running, Windows lists a Bluetooth headset's Hands-Free microphone as a normal recording device, and calls carry voice in both directions with wideband (mSBC) audio. In testing with AirPods Pro and a Shokz OpenMeet, microphone recordings and Discord calls came through with no voice packets lost.
+
+Everything else the radio is used for keeps working under the same driver: discovery, pairing, mice and other BLE input devices, and music (A2DP). Existing pairings carry over, because the controller keeps its own address. Sleep (S3) works as well: after each resume the driver reloads the controller's firmware and Windows brings the radio back about 7 seconds after wake.
+
 Tested on one Steam Deck OLED running Windows 11 25H2 (build 26200), test signing on, Memory Integrity off. Details and measurements: [docs/VERIFICATION.md](docs/VERIFICATION.md).
 
-- **Working:** firmware bring-up, discovery, pairing and encryption, BLE input devices, Classic headsets, music (A2DP), and Hands-Free voice in both directions with wideband (mSBC) audio. Existing pairings keep working because the controller reports its own address.
-- **Working:** sleep (S3). After each resume the driver reloads the firmware and Windows reinitialises the radio, about 7 seconds after wake.
+- **Headsets paired under the stock driver** may connect with music only. Pairing them again while DeckBtUsb runs makes the microphone available ([docs/INSTALL.md](docs/INSTALL.md)).
 - **Not implemented:** loading at boot. DeckBtUsb runs per session, started with `tools\session.ps1 -Start` and stopped with `-Stop`.
 - **Not implemented:** recovery from a controller crash.
 - **Untested:** narrowband (CVSD) voice, long calls, calls across sleep, hibernate and Fast Startup, battery impact.

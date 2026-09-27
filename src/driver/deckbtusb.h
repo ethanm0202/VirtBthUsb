@@ -38,7 +38,7 @@
  * view of the isochronous path on a machine without a kernel debugger.
  */
 typedef struct _DECKBT_SCO_STATS {
-    ULONG AltSetting;          /* SCO interface setting UdeCx last reported */
+    ULONG AltSetting;          /* SCO interface setting, from the configured SCO endpoints' packet size */
     ULONG AltChanges;
     ULONG OutMaxPacket;        /* wMaxPacketSize of the endpoint the latest URB used */
     ULONG InMaxPacket;
