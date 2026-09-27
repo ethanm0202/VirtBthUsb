@@ -19,7 +19,7 @@ Device descriptor (18 bytes)
   0010: 03 01 
 
 Configuration descriptor set (200 bytes)
-  0000: 09 02 C8 00 02 01 00 A0 32 09 04 00 00 03 E0 01 
+  0000: 09 02 C8 00 02 01 00 80 32 09 04 00 00 03 E0 01 
   0010: 01 00 07 05 81 03 10 00 04 07 05 02 02 00 02 00 
   0020: 07 05 82 02 00 02 00 09 04 01 00 02 E0 01 01 00 
   0030: 07 05 03 01 00 00 04 07 05 83 01 00 00 04 09 04 
@@ -35,7 +35,7 @@ Configuration descriptor set (200 bytes)
 
 Configuration descriptor set, parsed
   offset  len  type              detail
-      0     9  CONFIGURATION     wTotalLength=200 bNumInterfaces=2 bConfigurationValue=1 bmAttributes=0xA0 bMaxPower=50 (100 mA)
+      0     9  CONFIGURATION     wTotalLength=200 bNumInterfaces=2 bConfigurationValue=1 bmAttributes=0x80 bMaxPower=50 (100 mA)
       9     9  INTERFACE         bInterfaceNumber=0 bAlternateSetting=0 bNumEndpoints=3 class=E0/01/01
      18     7  ENDPOINT          bEndpointAddress=0x81 interrupt   wMaxPacketSize=16 bInterval=4
      25     7  ENDPOINT          bEndpointAddress=0x02 bulk        wMaxPacketSize=512 bInterval=0

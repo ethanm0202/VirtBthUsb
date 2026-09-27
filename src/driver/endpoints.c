@@ -577,8 +577,8 @@ DeckBtEvtControlUrb(
                 return;
             }
             /*
-             * Bus powered (bit0 = 0) to match bmAttributes/bMaxPower, and remote wake not
-             * currently armed (bit1 = 0). Endpoint requests report "not halted".
+             * Bus powered (bit0 = 0) to match bmAttributes/bMaxPower, and no remote wakeup (bit1 = 0),
+             * which bmAttributes does not advertise. Endpoint requests report "not halted".
              */
             statusBuf[0] = 0;
             statusBuf[1] = 0;
@@ -587,8 +587,16 @@ DeckBtEvtControlUrb(
             UdecxUrbComplete(Request, USBD_STATUS_SUCCESS);
             return;
         }
-        case 0x01:   /* CLEAR_FEATURE - e.g. ENDPOINT_HALT after a stall */
-        case 0x03:   /* SET_FEATURE   - e.g. DEVICE_REMOTE_WAKEUP        */
+        case 0x01:   /* CLEAR_FEATURE */
+        case 0x03:   /* SET_FEATURE   */
+            /*
+             * DEVICE_REMOTE_WAKEUP (device recipient, selector 1) is stalled as an unsupported
+             * feature, since bmAttributes does not advertise remote wakeup. Other features, such
+             * as ENDPOINT_HALT after a stall, are accepted.
+             */
+            if ((setup.Packet.bm.Byte & 0x1Fu) == 0u && setup.Packet.wValue.Value == 1u) {
+                break;   /* stalled below */
+            }
             DeckBtLogControl(controller, (const UCHAR *)&setup, DECKBT_CTL_OK_HCI, 0, 0);
             UdecxUrbSetBytesCompleted(Request, 0);
             UdecxUrbComplete(Request, USBD_STATUS_SUCCESS);

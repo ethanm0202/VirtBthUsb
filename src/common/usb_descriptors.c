@@ -63,10 +63,10 @@ const UCHAR DeckBtConfigDescriptor[] = {
     2,                              /* bNumInterfaces                             */
     1,                              /* bConfigurationValue                        */
     0,                              /* iConfiguration                             */
-    0xA0,                           /* bmAttributes: bus powered + remote wakeup   */
-                                    /* (0xE0 also claimed SELF powered, which
-                                       contradicts bMaxPower and the GET_STATUS
-                                       reply in endpoints.c)                      */
+    0x80,                           /* bmAttributes: bus powered, no remote wakeup */
+                                    /* (the driver never signals resume; bus
+                                       powered matches bMaxPower and the
+                                       GET_STATUS reply in endpoints.c)           */
     50,                             /* bMaxPower = 100 mA                         */
 
     /* --- interface 0: HCI command/event/ACL ---------------------------------- */
