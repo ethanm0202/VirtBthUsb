@@ -93,13 +93,6 @@ extern const UCHAR DeckBtDeviceDescriptor[];
 extern const ULONG DeckBtDeviceDescriptorSize;
 
 /*
- * Device qualifier, 10 bytes. A high-speed-capable device must answer
- * GET_DESCRIPTOR(DEVICE_QUALIFIER); reports bNumConfigurations 1 for the other speed.
- */
-extern const UCHAR DeckBtDeviceQualifier[];
-extern const ULONG DeckBtDeviceQualifierSize;
-
-/*
  * Full configuration descriptor set: configuration, interface 0 (+3 endpoints),
  * interface 1 alt 0..6 (+2 isochronous endpoints each). wTotalLength covers the whole blob.
  */

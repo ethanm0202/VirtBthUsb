@@ -32,7 +32,6 @@ static int g_fail = 0;
 #define USB_DT_STRING           0x03
 #define USB_DT_INTERFACE        0x04
 #define USB_DT_ENDPOINT         0x05
-#define USB_DT_DEVICE_QUALIFIER 0x06
 
 #define XFER_CONTROL 0
 #define XFER_ISOCH   1
@@ -53,10 +52,6 @@ int main(void)
     CHECK(rd16(&DeckBtDeviceDescriptor[8]) == DECKBT_VENDOR_ID, "idVendor 0x0CF3");
     CHECK(rd16(&DeckBtDeviceDescriptor[10]) == DECKBT_PRODUCT_ID, "idProduct 0x6390");
     CHECK(DeckBtDeviceDescriptor[17] == 1, "bNumConfigurations 1");
-
-    printf("device qualifier\n");
-    CHECK(DeckBtDeviceQualifierSize == 10, "size 10 (got %lu)", DeckBtDeviceQualifierSize);
-    CHECK(DeckBtDeviceQualifier[1] == USB_DT_DEVICE_QUALIFIER, "bDescriptorType 0x06");
 
     printf("configuration blob\n");
     const UCHAR *cfg = DeckBtConfigDescriptor;

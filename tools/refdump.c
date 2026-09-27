@@ -31,7 +31,6 @@ static const char *DescTypeName(UCHAR t)
     case 0x03: return "STRING";
     case 0x04: return "INTERFACE";
     case 0x05: return "ENDPOINT";
-    case 0x06: return "DEVICE_QUALIFIER";
     default:   return "?";
     }
 }
@@ -137,7 +136,6 @@ int main(void)
 
     printf("--- USB DESCRIPTORS ---\n\n");
     Hex("Device descriptor", DeckBtDeviceDescriptor, DeckBtDeviceDescriptorSize);
-    Hex("Device qualifier", DeckBtDeviceQualifier, DeckBtDeviceQualifierSize);
     Hex("Configuration descriptor set", DeckBtConfigDescriptor, DeckBtConfigDescriptorSize);
     WalkConfig();
 

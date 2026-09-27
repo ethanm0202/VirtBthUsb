@@ -33,19 +33,6 @@ const UCHAR DeckBtDeviceDescriptor[] = {
 };
 const ULONG DeckBtDeviceDescriptorSize = sizeof(DeckBtDeviceDescriptor);
 
-const UCHAR DeckBtDeviceQualifier[] = {
-    10,                             /* bLength                                    */
-    0x06,                           /* bDescriptorType = DEVICE_QUALIFIER         */
-    0x00, 0x02,                     /* bcdUSB                                     */
-    DECKBT_CLASS_WIRELESS,
-    DECKBT_SUBCLASS_RF,
-    DECKBT_PROTOCOL_BLUETOOTH,
-    64,                             /* bMaxPacketSize0                            */
-    1,                              /* bNumConfigurations (other speed)           */
-    0                               /* bReserved                                  */
-};
-const ULONG DeckBtDeviceQualifierSize = sizeof(DeckBtDeviceQualifier);
-
 /* ---------------------------------------------------------------- configuration */
 
 /*

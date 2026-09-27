@@ -33,19 +33,6 @@ const UCHAR IsoTestDeviceDescriptor[] = {
 };
 const ULONG IsoTestDeviceDescriptorSize = sizeof(IsoTestDeviceDescriptor);
 
-const UCHAR IsoTestDeviceQualifier[] = {
-    10,                             /* bLength                                    */
-    0x06,                           /* bDescriptorType = DEVICE_QUALIFIER         */
-    0x00, 0x02,                     /* bcdUSB = 2.00                              */
-    ISOTEST_CLASS_VENDOR,
-    ISOTEST_SUBCLASS_VENDOR,
-    ISOTEST_PROTOCOL_VENDOR,
-    64,                             /* bMaxPacketSize0                            */
-    1,                              /* bNumConfigurations (other speed)           */
-    0                               /* bReserved                                  */
-};
-const ULONG IsoTestDeviceQualifierSize = sizeof(IsoTestDeviceQualifier);
-
 /* ---------------------------------------------------------------- configuration */
 
 /*
