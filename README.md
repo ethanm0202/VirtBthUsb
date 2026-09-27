@@ -85,7 +85,7 @@ Read [docs/INSTALL.md](docs/INSTALL.md) before running these. It covers what eac
 |---|---|---|
 | `src/driver/` | `deckbtusb.sys`: UdeCx host controller, USB endpoints, UART backend (`qca_uart.c`), synthetic HCI stub | yes |
 | `src/common/`, `src/include/` | Kernel/user-mode shared logic: descriptors, H4 codec, HCI bridge, QCA firmware parser and bring-up state machine, SCO framing and routing | yes |
-| `src/filter/` | `deckbtflt.sys`: optional lower filter that supplies a USB frame clock (`QueryBusTime`) | no. BTHUSB does not need it. Kept for the isochronous test stack and as a fallback |
+| `src/filter/` | `deckbtflt.sys`: optional lower filter that supplies a USB frame clock (`QueryBusTime`) | no. Voice works without it on the tested build. Used by the isochronous test stack and kept as a diagnostic |
 | `src/isotest/`, `tools/isotest/` | Vendor-class UdeCx device and WinUSB harness that measured isochronous transfer support | no. Development instrument |
 | `tools/*_selftest.c` | Host-side test suites compiled against the production sources | tests |
 | `tools/*.ps1` | Install, session, recovery, diagnostics and test scripts | see [docs/INSTALL.md](docs/INSTALL.md) and [docs/BUILD.md](docs/BUILD.md) |

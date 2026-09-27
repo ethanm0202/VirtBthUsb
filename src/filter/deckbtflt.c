@@ -1,9 +1,9 @@
 /*
  * deckbtflt.c - Lower filter driver attached beneath BTHUSB.SYS or WinUSB.
  *
- * DeckBtFlt is optional: the working Bluetooth setup does not install it
- * (BTHUSB does not use QueryBusTime); it is kept for the isochronous test
- * stack and as a fallback.
+ * DeckBtFlt is optional: on the tested Windows build BTHUSB carries voice
+ * without it. It is used by the isochronous test stack and kept as a
+ * diagnostic for other builds.
  *
  * Intercepts and logs IRP_MN_QUERY_INTERFACE requests for USB bus interfaces,
  * and provides optional QueryBusTime synthesis for UdeCx isochronous support.

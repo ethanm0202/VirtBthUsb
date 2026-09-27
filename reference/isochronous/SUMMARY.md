@@ -33,7 +33,7 @@ When tested without filter assistance (standard UdeCx behavior):
 - **Rejected Transfers:** 432 of 432 cells (failed with `ERROR_NOT_SUPPORTED` / `0xC00000BB`).
 - All `QueryBusTime` queries returned `STATUS_NOT_SUPPORTED`.
 
-UdeCx does not implement `QueryBusTime`, and WinUSB's isochronous path fails without it. With a substituted frame clock, UdeCx carries every legal SCO packet geometry. `BTHUSB.SYS` does not depend on `QueryBusTime` and carries voice without the filter (see `docs/VERIFICATION.md`).
+UdeCx does not implement `QueryBusTime`, and WinUSB's isochronous path fails without it. With a substituted frame clock, UdeCx carries every legal SCO packet geometry. On the tested build, `BTHUSB.SYS` carries voice without the filter (see `docs/VERIFICATION.md`).
 
 ---
 

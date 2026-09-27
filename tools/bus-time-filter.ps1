@@ -1,10 +1,15 @@
 <#
     bus-time-filter.ps1 - Manage DeckBtFlt under BTHUSB on the emulated radio.
 
-    Use only if a voice run shows BTHUSB selecting a SCO alternate setting (ScoAltSetting > 0) but
-    never streaming (ScoOutUrbs = ScoInUrbs = 0): the likely cause is BTHUSB asking for bus time,
-    which native UdeCx refuses (WinUSB requires the same clock synthesis; see the isochronous
-    reference documentation).
+    On the tested build (Windows 11 25H2, build 26200) BTHUSB carries SCO voice without this filter.
+    The filter's established use is the WinUSB isochronous test stack, which fails without a frame
+    clock because UdeCx answers QueryBusTime with STATUS_NOT_SUPPORTED (see the isochronous
+    reference documentation). Under BTHUSB it is a diagnostic for other Windows builds.
+
+    If a voice run shows BTHUSB selecting a SCO alternate setting (ScoAltSetting > 0) with no SCO
+    URBs (ScoOutUrbs = ScoInUrbs = 0), QueryBusTime is one hypothesis, not an established cause.
+    Install the filter to test it, then run -Status: with IsochHookInstalled = 1, nonzero
+    QueryBusTimeCalls or QueryBusTimeExCalls means BTHUSB requested bus time; zero rules it out.
 
       -Install  stage deckbtflt.inf (it matches the hardware ID USB\VID_0CF3&PID_6390 and so outranks
                 bth.inf's compatible-ID match; BTHUSB/BTHPORT still drive the radio) and set
