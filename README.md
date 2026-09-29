@@ -1,5 +1,8 @@
 # VirtBthUsb
 
+> [!IMPORTANT]
+> **VirtBthUsb is superseded by [DeckBtService](https://github.com/ethanm0202/DeckBtService).** DeckBtService does the same job from a user-mode service on top of usbip-win2's signed driver, so it needs no driver of its own and no Windows test signing, and it installs and uninstalls with a script. Use DeckBtService instead; this repository is kept for reference and is no longer developed. If VirtBthUsb is installed, remove it with `tools\session.ps1 -Uninstall` before installing DeckBtService.
+
 A Windows kernel driver that makes the Steam Deck OLED's Bluetooth controller appear to Windows as a USB Bluetooth radio, so Windows' built-in USB Bluetooth drivers run it. With those drivers, Bluetooth headset microphones (the Hands-Free profile) work, which they do not with the stock driver.
 
 The driver and its service are named `DeckBtUsb`.
